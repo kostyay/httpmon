@@ -1,0 +1,406 @@
+﻿Architectural Blueprint for a High-Performance TUI HTTP Debugging Proxy: A Golang Implementation Strategy
+1. Introduction: The Evolution of Network Introspection
+The landscape of software development has undergone a radical transformation over the last decade, shifting from monolithic, desktop-centric workflows to distributed, containerized, and often headless environments. In this modern paradigm, the tools required for network introspection—spying on, intercepting, and manipulating HTTP/HTTPS traffic—must evolve to meet the constraints and capabilities of these new environments. Historically, this domain has been dominated by robust Graphical User Interface (GUI) applications such as Proxyman, Charles Proxy, and Fiddler. These tools provide indispensable visibility into the "wire," allowing developers to debug API integrations, validate security postures, and simulate edge cases via traffic manipulation.
+However, the reliance on heavy, desktop-native GUIs introduces significant friction in contemporary workflows. Developers working in remote SSH sessions, managing microservices in Kubernetes clusters, or debugging pipelines in headless Continuous Integration (CI) environments often find themselves unable to utilize these GUI-based tools effectively. The necessity to forward X11 sessions or set up complex port forwarding tunnels to a local GUI breaks the "flow state" and introduces latency. Furthermore, the resource overhead of Electron-based or Java-based GUIs can be prohibitive on constrained edge devices.
+There exists a distinct and unaddressed opportunity to re-imagine the HTTP debugging proxy as a terminal-native application. By leveraging the performance and concurrency primitives of Golang, we can architect a Terminal User Interface (TUI) that achieves feature parity with Proxyman—including Man-in-the-Middle (MITM) SSL decryption, dynamic scripting, and granular filtering—while maintaining the portability, efficiency, and composability of a CLI tool. This report outlines a comprehensive architectural strategy for implementing such a system. It prioritizes a decoupled design where the interception engine (Data Plane) is separated from the user interface (Presentation Layer) via a strict gRPC Control Plane. This decoupling not only facilitates the immediate goal of a robust TUI but also future-proofs the system, allowing the same backend to drive web-based dashboards or native mobile applications.
+Furthermore, this architecture integrates cutting-edge developments in local Artificial Intelligence. By embedding efficient local Large Language Models (LLMs) to interpret natural language prompt expressions into deterministic filter logic, the tool democratizes complex query construction, removing the cognitive load of mastering proprietary filter syntaxes. The following sections provide a rigorous technical analysis of the components, libraries, and design patterns required to realize this vision.
+2. Architectural Core: The Decoupled Proxy Pattern
+The foundational requirement for this system is the strict separation of concerns between traffic handling and traffic visualization. Traditional proxy tools often tightly couple these layers, leading to architectures where the UI rendering loop can block network I/O, or where the application is monolithically bound to a specific operating system's window manager. To support the requirement that the TUI be "easily decoupled and possible to be replaced with web UI or native Swift application," we must adopt a client-server architecture, even if both components run in the same binary process for the default distribution.
+2.1 The Data Plane: MITM Engine Design
+The Data Plane is the engine room of the application. It is responsible for the high-performance handling of network packets: accepting client connections, establishing upstream tunnels, performing TLS termination, and executing modification logic. In Golang, while the net/http standard library provides a robust foundation for HTTP servers, it lacks the specific primitives required for transparent Man-in-the-Middle (MITM) operations, particularly dynamic certificate generation and connection hijacking.
+The proposed architecture utilizes an Explicit HTTP/HTTPS Proxy model. In this configuration, the client (e.g., curl, a web browser, or a mobile device) is explicitly configured to route traffic through the proxy's listener port. The proxy handles the HTTP CONNECT method to establish tunnels.
+* Connection Hijacking: Upon receiving a CONNECT request, the proxy must "hijack" the underlying TCP connection. Instead of simply piping bytes between the client and the server (which would blind the proxy to the encrypted content), it acts as a server to the client and a client to the upstream server.
+* Certificate Authority (CA) Management: To inspect HTTPS traffic, the proxy must dynamically generate "leaf" certificates for the requested domains (e.g., api.google.com), signed by a locally trusted Root CA generated by the application.
+* Protocol Support: The engine must transparently handle protocol negotiation, supporting HTTP/1.1, HTTP/2 via ALPN (Application-Layer Protocol Negotiation), and potentially upgrading connections to WebSockets.
+Technical Selection: go-mitmproxy Research into the Golang ecosystem identifies go-mitmproxy 1 as the optimal foundational library. Unlike general-purpose proxy libraries like elazarl/goproxy 3 which are often geared towards scraping or simple rotation, go-mitmproxy is architected specifically for the MITM use case. Key advantages include:
+1. Certificate Storage Compatibility: It maintains compatibility with the Python-based mitmproxy's certificate storage structure (~/.mitmproxy). This allows users who have already trusted the mitmproxy-ca-cert.pem on their devices to switch to this Go-based tool without reconfiguration.1
+2. Addon/Hook System: It implements an event-driven architecture with hooks such as Request, Response, RequestHeaders, and TlsEstablishedServer. This mirrors the lifecycle needed for implementing advanced features like Scripting and Breakpoints.1
+3. HTTP/2 Support: It natively handles HTTP/2, ensuring that the debugging tool does not artificially downgrade traffic to HTTP/1.1, which could mask protocol-specific bugs.1
+2.2 The Control Plane: gRPC vs. WebSockets
+The Control Plane defines how the Data Plane communicates with the Presentation Layer (the TUI). This communication must be bidirectional: the Data Plane streams logs and traffic data to the TUI, while the TUI sends control commands (e.g., "pause this request", "update the active filter", "resume flow") back to the Data Plane.
+Comparative Analysis:
+* WebSockets: Historically used for real-time web communication, WebSockets provide full-duplex communication and are natively supported by browsers.4 They are excellent for simple event streaming. However, WebSockets lack strict typing. Developing a complex protocol over WebSockets often leads to fragility, as the payload structure (usually JSON) is loosely defined and requires manual validation on both ends.
+* gRPC: Built on HTTP/2, gRPC utilizes Protocol Buffers (Protobuf) for efficient binary serialization and strictly defined interface description languages (IDL). gRPC supports bidirectional streaming, allowing a persistent channel where logs flow down and commands flow up simultaneously.4 The binary format of Protobuf is significantly more efficient than JSON for serializing the heavy payloads typical of HTTP bodies, reducing the CPU overhead of the Control Plane.5
+Architectural Decision: gRPC-First
+The system will employ gRPC as the primary transport for the Control Plane. This ensures:
+1. Type Safety: The contract between the proxy and the UI is strictly defined in .proto files. If the API evolves, the compiler enforces changes across both components.
+2. Performance: Protobuf serialization minimizes the overhead of transferring large request/response bodies to the TUI.5
+3. Future Web Support: While browsers do not speak native gRPC, the ecosystem provides robust solutions like gRPC-Web (via Envoy) or in-process transcoding to WebSockets.6 This allows a future Web UI to consume the same API without modifying the backend logic.
+Schema Definition Strategy:
+The gRPC service definition should mirror the domain objects.
+
+
+Protocol Buffers
+
+
+
+
+service TrafficControl {
+ // Streaming RPC for real-time traffic monitoring
+ rpc SubscribeToTraffic(SubscriptionRequest) returns (stream TrafficEvent);
+ 
+ // Unary RPCs for control actions
+ rpc SetBreakpoint(BreakpointRule) returns (Empty);
+ rpc ResumeFlow(FlowControl) returns (Empty);
+ rpc UpdateScript(ScriptPayload) returns (ScriptStatus);
+}
+
+message TrafficEvent {
+ oneof event {
+   FlowMeta new_flow = 1;
+   FlowUpdate update = 2;
+   FlowBodyChunk body_chunk = 3;
+ }
+}
+
+This schema enables the TUI to subscribe to a filtered stream of events, receiving metadata immediately and large bodies only on demand.
+2.3 State Management and Persistence
+The proxy must act as the "source of truth" for the state of all network traffic. The TUI is merely a view into this state.
+* In-Memory Ring Buffer: To prevent unbounded memory growth during long debugging sessions, the Data Plane should utilize a high-performance ring buffer to store the most recent flows (e.g., the last 10,000 requests). Older requests are evicted from memory.
+* SQLite Storage: For the "Save Session" functionality—a critical feature for replacing Proxyman—the system should integrate modernc.org/sqlite (a pure Go SQLite implementation). This allows persisting entire sessions to disk in a relational format that can be queried later, providing durability without external dependencies.
+* Broadcasting: A purely internal Go channel-based pub/sub mechanism distributes events from the MITM engine to the gRPC handlers. This ensures that if multiple clients connect (e.g., a TUI and a CLI logger simultaneously), they both receive the traffic stream.8
+3. The Interception Layer: Deep Dive into Implementation
+The capabilities of the proxy are defined by its ability to intercept and modify traffic at various stages of the HTTP lifecycle.
+3.1 Dynamic Certificate Architecture
+Trust is the currency of any MITM proxy. The application must manage a Public Key Infrastructure (PKI) locally.
+1. Root CA Generation: On first launch, the application checks for the existence of ~/.mitmproxy/mitmproxy-ca.pem. If absent, it uses Go's crypto/x509 to generate a 2048-bit RSA key and a self-signed Root CA certificate valid for a long duration (e.g., 10 years).
+2. Leaf Certificate Signing: When a client initiates a TLS handshake for google.com, the proxy must present a valid certificate for that domain. Generating RSA keys is computationally expensive (tens of milliseconds). To ensure high throughput, the system must implement an LRU (Least Recently Used) Cache for leaf certificates.9
+   * Cache Key: Hostname (e.g., google.com).
+   * Cache Value: The tls.Certificate struct containing the signed cert and private key.
+   * Optimization: Using ECDSA keys instead of RSA for leaf certificates can significantly reduce generation time, though compatibility with very old clients must be considered.
+3.2 Protocol Upgrades: WebSockets and HTTP/2
+Modern web applications heavily utilize HTTP/2 and WebSockets. A naive proxy implementation that downgrades everything to HTTP/1.1 often breaks applications that rely on specific protocol features (e.g., gRPC requires HTTP/2 trailers).
+* HTTP/2: The go-mitmproxy library supports HTTP/2.1 The implementation must ensure that the http.Server and http.Transport configurations explicitly enable HTTP/2 support via the golang.org/x/net/http2 package if the standard library's automatic negotiation is insufficient for specific MITM scenarios.
+* WebSockets: Intercepting WebSockets requires hijacking the http.ResponseWriter after the 101 Switching Protocols handshake. The TCP stream is then wrapped in a custom struct that decodes WebSocket frames (using a library like github.com/gorilla/websocket or gobwas/ws) before passing them upstream.5 The proxy must maintain the state of these persistent connections, treating individual frames as events within the Flow, enabling the user to see the "chat" between client and server in the TUI.
+3.3 The Hook System and Blocking Logic
+To support Breakpoints—where a request is paused for user intervention—the Data Plane must support blocking operations.
+* Middleware Pattern: The interceptor logic acts as middleware.
+* Breakpoint Logic:
+Go
+func (p *Proxy) OnRequest(f *Flow) {
+   if p.breakpointManager.Matches(f) {
+       // Create a channel for this specific flow
+       resumeCh := make(chan bool)
+       p.breakpointManager.Register(f.ID, resumeCh)
+
+       // Notify TUI via gRPC
+       p.events <- NewBreakpointEvent(f)
+
+       // Block execution until signal received
+       <-resumeCh
+   }
+}
+
+This architectural pattern ensures that only the specific goroutine handling the intercepted request is blocked, while other traffic continues to flow unimpeded.
+4. The Presentation Layer: Bubble Tea Architecture
+The Presentation Layer faces the unique challenge of rendering high-density information in a terminal grid. The TUI must feel responsive, "glitch-free," and visually dense, mimicking the 3-pane layout of desktop tools.
+4.1 Framework Selection: Bubble Tea
+The Go ecosystem offers two primary TUI libraries: tview and bubbletea.
+   * tview: An imperative, widget-based library. It provides ready-made components like tables and forms but can be difficult to customize and debug due to its callback-heavy nature.11
+   * bubbletea: Implements "The Elm Architecture" (TEA). It models the UI as a function of State (Model). Updates are handled via a pure Update function that processes messages (Msg) and returns a new model and commands (Cmd).
+Decision: Bubble Tea is selected for this project. Its functional paradigm helps manage the complexity of asynchronous events (logs arriving, user typing, LLM responding) without race conditions. The companion library lipgloss provides a CSS-like styling engine, essential for creating the modern, polished look associated with Proxyman.12
+4.2 High-Performance Rendering Strategies
+Rendering a table with 10,000 requests in a terminal is a performance bottleneck.
+   * Virtualization: The TUI must employ "windowing" or virtualization. The bubbles/table or bubbles/viewport component should only render the rows currently visible on the screen. The backing data structure holds the full history, but the View function iterates only over [offset : offset+height].
+   * Update Batching: In a high-traffic scenario (e.g., 500 req/s), sending a TEA message for every request will thrash the render loop. The application should implement a Tick-based Batching strategy.
+   * The gRPC client appends incoming logs to a thread-safe buffer.
+   * A tea.Tick command fires every 30ms or 100ms.
+   * On every tick, the Update loop consumes the entire buffer and triggers a single re-render.13
+4.3 Layout Implementation
+To match Proxyman's utility, the TUI requires a flexible 3-pane layout.
+   1. Sidebar (Left): A bubbles/list component showing distinct domains or apps. Filtering here allows focusing on specific traffic sources.
+   2. Request List (Top Right): A custom table using lipgloss to render columns (Method, Status, Host, Path, Time). Status codes should be color-coded (Green 200s, Red 400/500s).
+   3. Inspector (Bottom Right): A bubbles/viewport with tab support. Tabs include "Headers", "Body", "Query", and "Trailers".
+   * Syntax Highlighting: The Inspector must use alecthomas/chroma 14 to apply syntax highlighting to JSON, XML, and HTML bodies before rendering them to the viewport. This provides the "rich" feel of a GUI tool.
+5. Intelligent Filtering: Integration of LLMs and CEL
+A key requirement is accepting filters as "prompt expressions in an efficient local model." This represents a significant innovation over standard regex or wildcard filtering.
+5.1 The Logic Engine: Common Expression Language (CEL)
+Directly using an LLM to classify every request is architecturally unsound due to latency (inference takes 10s-100s of milliseconds) and cost. A proxy handling 1000 req/s requires nanosecond-level filtering. Solution: We use Google's Common Expression Language (CEL) as the execution engine.15
+   * CEL-Go: A fast, safe, non-Turing complete expression language.
+   * Mechanism: The Go app exposes a CEL environment with variables like request.method, response.status, request.body_size.
+   * Performance: CEL expressions are compiled once and can be evaluated against millions of Go structs per second with negligible overhead.15
+5.2 The Translation Layer: LLM Integration
+The role of the LLM is to act as a Compiler, translating Natural Language (NL) into CEL.
+   1. User Input: "Show me all 404 responses from api.stripe.com"
+   2. Prompt Engineering: The application constructs a prompt for the local model (Ollama/llama.cpp):You are a query translator. Convert the following requirement into a CEL expression.
+Schema: req.host (string), res.code (int), req.method (string).
+Input: "Show me all 404 responses from api.stripe.com"
+Output: res.code == 404 && req.host == "api.stripe.com"
+   3. Execution: The TUI receives the CEL string from the LLM, compiles it using cel-go, and applies it to the view filter.
+5.3 Local Model Runtime
+To satisfy the "efficient local model" requirement:
+      * Ollama: The primary integration target. It offers a standardized REST API and manages model weights and quantization automatically.17
+      * Embeddability: For a purely self-contained tool, linking llama.cpp directly via go-llama.cpp bindings 19 removes the dependency on an external Ollama process. However, this complicates cross-compilation (CGO required).
+      * Quantization: The system should recommend or bundle highly quantized "Small Language Models" (SLMs) like phi-3 or llama-3-8b-q4. These models are sufficient for the translation task and run efficiently on consumer CPUs/GPUs.
+6. Dynamic Scripting: Embedded JavaScript Runtime
+To replicate Proxyman's scripting capability ("allow scripting responses using javascript engine"), the tool must embed a JavaScript runtime.
+6.1 Runtime Selection: Goja
+Two main options exist in Go: v8go (bindings to Google V8) and goja (pure Go implementation).
+      * v8go: Offers peak performance but introduces a heavy CGO dependency and requires linking against the V8 library, which is notoriously difficult to distribute across Linux/Mac/Windows architectures.20
+      * Goja: A pure Go implementation of ECMAScript 5.1 (with some ES6 features). It requires no CGO, enabling the production of static binaries.20
+Decision: Goja. The overhead of creating a new JS VM for a request is minimal, and goja allows seamless mapping of Go structs to JS objects. The "pure Go" nature aligns with the goal of an easily distributable tool.
+6.2 Scripting API Design
+The scripting environment must provide an API compatible with Proxyman's object model to lower the barrier to entry.22
+      * Signature: onRequest(context, url, request) and onResponse(context, url, request, response).
+      * Data Marshaling:
+      * The go-mitmproxy Flow object is mapped to a Go struct tagged for Goja.
+      * FieldNameMapper is used to automatically convert Go's TitleCase fields (Header) to JS camelCase (header).21
+      * Body Handling: For performance, bodies should be exposed as strings for text content. For binary content, goja supports ArrayBuffer. The Data Plane must efficiently convert the request body stream into a buffer available to the script, then re-serialize it if modified.
+7. MVP Features: A Competitive Feature Matrix
+To define the Minimum Viable Product (MVP) that successfully competes with Proxyman, we categorize features by Priority (P0 - Essential, P1 - High Value).
+Feature Category
+	Proxyman Feature
+	TUI Implementation Strategy
+	Priority
+	Core Interception
+	Auto-proxy config, SSL Decryption
+	go-mitmproxy core. Command tui proxy on/off to set system proxy settings. Dynamic CA generation.
+	P0
+	Inspection
+	Table View, Header/Body Inspector
+	Bubble Tea table and viewport bubbles. lipgloss layout. chroma for syntax highlighting JSON/XML.
+	P0
+	Filtering
+	Multiple Filters, Cmd+F
+	Smart Filter: LLM-driven Natural Language to CEL conversion. Quick Filter: Simple substring matching.
+	P0
+	Scripting
+	JavaScript Rewrite Rule
+	goja runtime. Watch filesystem for script.js changes and hot-reload logic. API parity with onRequest/onResponse.
+	P0
+	Export
+	Export as cURL, HAR
+	Middleware to reconstruct http.Request into cURL string format. HAR generation using standard libraries.
+	P0
+	Map Local
+	Map URL to Local File
+	Middleware logic: if req.URL.Path == match { serveFile(path) }. TUI modal to select file path.
+	P1
+	Breakpoints
+	Pause/Resume, Edit Request
+	Go channels to block request goroutine. TUI modal to edit header/body fields then signal channel to resume.
+	P1
+	Diff Tool
+	Visual Diff of 2 requests
+	TUI view utilizing sergi/go-diff or similar text diff algorithm, rendered with green/red backgrounds via lipgloss.
+	P2
+	8. Implementation Roadmap
+Phase 1: The Core Pipeline (Weeks 1-4)
+      * Objective: Establish the Data Plane and Control Plane.
+      * Tasks:
+      * Initialize go-mitmproxy. Implement CA generation logic.
+      * Define traffic.proto for gRPC. Implement Subscribe RPC.
+      * Create the "Headless" mode where the proxy runs and streams logs to stdout via a gRPC client.
+Phase 2: The TUI Foundation (Weeks 5-8)
+      * Objective: Visualizing the stream.
+      * Tasks:
+      * Initialize Bubble Tea model. Connect gRPC client to TEA Cmd.
+      * Implement the RequestList table with virtualization.
+      * Implement the Inspector pane with syntax highlighting.
+      * Integrate lipgloss for the responsive 3-pane layout.
+Phase 3: Intelligence & Scripting (Weeks 9-12)
+      * Objective: Dynamic capabilities.
+      * Tasks:
+      * Integrate goja. Map http.Request structs to Goja values.
+      * Implement the file watcher for hot-reloading scripts.
+      * Integrate cel-go. Define the CEL environment variables.
+      * Implement the Ollama client. Wire the TUI filter input to the LLM->CEL pipeline.
+Phase 4: Advanced Tooling (Weeks 13-16)
+      * Objective: Feature parity.
+      * Tasks:
+      * Implement "Map Local" middleware.
+      * Implement Breakpoint logic (blocking channels).
+      * Polish the UX: Mouse support, keyboard navigation shortcuts (vim bindings), clipboard integration.
+9. Future Proofing: The Swift Frontend
+The requirement states the TUI should be "easily decoupled" for a native Swift application. The gRPC Control Plane is the enabler here.
+      * Swift Integration: Swift has excellent support for gRPC via grpc-swift. The exact same .proto files used for the Go TUI can generate Swift client code.
+      * Architecture: The Go binary runs as a "daemon" or "sidecar" (Data Plane). The Swift App (Presentation Layer) connects to localhost:50051.
+      * State Sync: The Swift app subscribes to the TrafficEvent stream. The Go backend remains the source of truth, ensuring that whether the user is on the TUI or the Native App, the filtering, scripting, and interception logic behaves identically.
+10. Conclusion
+The proposed architecture represents a significant leap forward in developer tooling. By combining the raw performance of Golang and go-mitmproxy with the modern interface capabilities of Bubble Tea, we can deliver a tool that rivals established GUIs like Proxyman. The strategic integration of Local LLMs and CEL solves the complexity of filtering, making the tool accessible to a broader audience. Finally, the strict adherence to a decoupled gRPC architecture ensures that the investment is future-proof, paving the way for a multi-platform ecosystem centered around a unified, high-performance interception engine.
+________________
+Detailed Technical Analysis
+11. Data Plane Implementation Strategy
+11.1 The Interception Core: go-mitmproxy
+The selection of go-mitmproxy provides a significant head start. It essentially operates by launching a standard HTTP server that handles the CONNECT method.
+      * Tunneling: When a client sends CONNECT example.com:443, the proxy dials example.com:443.
+      * MITM Handshake: Instead of blinding piping data, it performs a TLS handshake with the client using a dynamically generated certificate for example.com. Simultaneously, it performs a handshake with the upstream server.
+      * Data Flow: Client <-> <-> Proxy (Decrypted) <-> <-> Upstream.
+      * Extensibility: The library uses an Addon interface. To implement our logging and scripting, we define a struct that satisfies this interface.
+
+
+Go
+
+
+
+
+type Interceptor struct {
+   proxy.BaseAddon
+   ScriptEngine *ScriptManager
+   GrpcServer   *ControlPlane
+}
+
+func (i *Interceptor) Request(f *proxy.Flow) {
+   // 1. Run Script Modifications
+   if i.ScriptEngine.Active {
+       i.ScriptEngine.ExecuteOnRequest(f)
+   }
+   
+   // 2. Broadcast to Control Plane
+   i.GrpcServer.Broadcast(f)
+}
+
+11.2 Performance Considerations: Zero-Copy & Buffering
+Handling high-throughput traffic (e.g., streaming video or large API payloads) in Go requires careful memory management.
+      * Body Handling: Reading the full body into a byte slice (byte) for every request can cause massive GC pressure.
+      * Optimization: The proxy should stream bodies. For the TUI, we do not need the full body immediately. We can store the body in a temporary file (using os.CreateTemp) and keep only a pointer in the Flow object. The TUI requests the body content via gRPC only when the user explicitly inspects that request.
+      * Broadcasting: The Broadcast function must be non-blocking. If the gRPC consumer (TUI) is slow, it should not stall the proxy traffic. We use buffered channels with a strategy to drop logs (with a "dropped logs" warning) if the buffer fills up, prioritizing traffic capability over observability.
+12. Control Plane Design: gRPC Service Definition
+To satisfy the decoupling requirement, the gRPC service acts as the API for the frontend.
+12.1 Proto Definition
+
+
+Protocol Buffers
+
+
+
+
+syntax = "proto3";
+
+package proxymantui;
+
+service ProxyControl {
+   // The Firehose: Streams metadata of flows as they happen.
+   rpc StreamFlows(StreamRequest) returns (stream FlowEvent);
+   
+   // The Fetch: Retrieves full details (body) for a specific flow.
+   rpc GetFlowDetails(FlowID) returns (FlowDetails);
+   
+   // The Command: Sends actions back to the proxy.
+   rpc UpdateConfig(ConfigUpdate) returns (ConfigStatus);
+}
+
+message FlowEvent {
+   string id = 1;
+   string method = 2;
+   string url = 3;
+   int32 status_code = 4;
+   int64 duration_ms = 5;
+   int64 size_bytes = 6;
+   // Note: No body here to keep stream light
+}
+
+12.2 State Synchronization
+Synchronization between the Backend (Proxy) and Frontend (TUI) is a classic distributed systems problem.
+      * Event Sourcing Pattern: The proxy sends events (FlowStarted, FlowHeadersReceived, FlowCompleted). The TUI maintains its own local model which it updates by applying these events.
+      * Reconnection: If the TUI disconnects and reconnects, it calls a GetSnapshot RPC to load the current ring buffer state before resuming the stream.
+13. Scripting Engine: Goja Integration
+13.1 Object Model Implementation
+Users expect an API similar to Proxyman's JavaScript documentation. We must bridge Go structs to JS objects.
+      * Request Object:
+Go
+type JSRequest struct {
+   URL     string            `json:"url"`
+   Method  string            `json:"method"`
+   Headers map[string]string `json:"headers"`
+   Body    string            `json:"body"`
+}
+
+      * Marshaling: When onRequest triggers, we deep-copy the proxy.Flow data into this JSRequest struct. We pass this to Goja.
+      * Unmarshaling: After execution, we read the JSRequest object back. We compare fields. If Headers changed, we update the underlying proxy.Flow.
+      * Performance Note: Stringifying the body for JS can be slow for large payloads. We should impose a limit (e.g., 1MB) for scriptable bodies, or expose a specialized API request.bodyBytes for binary manipulation without full string conversion.
+13.2 Security and Sandboxing
+Running user code implies risk.
+         * Infinite Loops: goja supports Interrupt. We must wrap script execution in a time.AfterFunc to kill the VM if it runs longer than 100ms.
+Go
+vm := goja.New()
+time.AfterFunc(100*time.Millisecond, func() {
+   vm.Interrupt("timeout")
+})
+
+         * File System Access: By default, Goja is a safe sandbox. It has no access to os or net unless we explicitly inject those modules. We should not inject them to keep the proxy secure, unless "Map Local" features specifically require restricted file reading.
+14. Intelligence Layer: LLM Prompt Engineering
+The quality of the "Smart Filter" depends entirely on the prompt engineering strategies used with the local LLM.
+14.1 The Prompt Strategy
+We need the LLM to output valid CEL code, not chatty text.
+            * System Prompt: "You are a code generator. You output ONLY valid CEL logic. Do not explain."
+            * Few-Shot Learning: We provide examples in the prompt to "teach" the model the schema.
+            * User: "POST requests to login"
+            * Assistant: req.method == "POST" && req.path.contains("/login")
+            * Error Correction: If cel-go fails to compile the returned string, we can (optionally) feed the error back to the LLM: "The previous code failed with error X. Fix it." However, for a real-time tool, it is often better to fail fast and show the error to the user.
+14.2 Quantization & Performance
+Running llama-3 70B parameter model locally is too slow for a tool like this. We should target:
+            * Models: phi-3-mini (3.8B), llama-3-8b.
+            * Quantization: q4_0 or q5_k_m. These provide a sweet spot where inference on a modern MacBook (M1/M2/M3) takes <500ms, which is acceptable for a "filter update" action (which happens rarely compared to traffic flow).
+15. TUI Implementation with Bubble Tea
+15.1 The Model Structure
+
+
+Go
+
+
+
+
+type Model struct {
+   // State
+   Flows     Flow
+   Selected   int
+   ActivePane Pane // Sidebar, List, Inspector
+   
+   // Components
+   Table      table.Model
+   Viewport   viewport.Model
+   FilterInput textinput.Model
+   
+   // Connectivity
+   grpcClient TrafficClient
+}
+
+15.2 Handling Resize Events
+Terminal windows are resized frequently. Bubble Tea sends a tea.WindowSizeMsg.
+            * Layout Recalculation: On receiving this message, the model must recalculate the width/height of the lipgloss layouts.
+            * Table Responsiveness: The Request List table columns (URL, Method) should have dynamic widths (percentages) rather than fixed characters to adapt to the screen real estate.
+15.3 The Diff View
+Implementing the MVP "Diff" feature in TUI:
+            1. Selection: User selects two flows in the table (e.g., using Space to mark).
+            2. Comparison: The app retrieves both bodies.
+            3. Diffing: Use github.com/sergi/go-diff/diffmatchpatch.
+            4. Rendering:
+            * Generate a unified or side-by-side string.
+            * Iterate through diff segments.
+            * Wrap "insertions" in lipgloss.NewStyle().Background(lipgloss.Color("22")) (Green).
+            * Wrap "deletions" in lipgloss.NewStyle().Background(lipgloss.Color("52")) (Red).
+            * Pipe the result into a viewport for scrolling.
+16. Conclusion
+The proposed TUI clone of Proxyman is a sophisticated engineering challenge that merges low-level networking (MITM, TLS, TCP) with high-level UI paradigms (TEA) and modern AI integration (LLM/CEL). By rigorously decoupling the Data Plane via gRPC, the architecture not only solves the immediate problem of a portable debugging tool but also creates a platform for future innovation in network observability. The use of go-mitmproxy, bubbletea, and goja provides a solid, performant, and "pure Go" foundation that minimizes external dependencies and maximizes developer velocity.
+References
+            * 1 go-mitmproxy: Feature set and certificate handling.
+            * 4 gRPC vs WebSockets: Rationale for bidirectional streaming control plane.
+            * 12 Bubble Tea: TUI framework documentation.
+            * 21 Goja: Usage of the pure Go JavaScript runtime.
+            * 16 CEL-Go: Implementation of the filter logic engine.
+            * 19 Local LLMs: Integration strategies for llama.cpp and Ollama.
+            * 22 Proxyman Scripting: API reference for compatibility.
+Works cited
+            1. lqqyt2423/go-mitmproxy: mitmproxy implemented with golang. 用 Golang 实现的中间人攻击（Man-in-the-middle），解析、监测、篡改 HTTP/HTTPS 流量。 - GitHub, accessed February 9, 2026, https://github.com/lqqyt2423/go-mitmproxy
+            2. go-mitmproxy module - github.com/lqqyt2423/go-mitmproxy - Go Packages, accessed February 9, 2026, https://pkg.go.dev/github.com/lqqyt2423/go-mitmproxy
+            3. ScrapeOps/go-proxy-mitm: An HTTP proxy library for Go - GitHub, accessed February 9, 2026, https://github.com/ScrapeOps/go-proxy-mitm
+            4. WebSockets vs gRPC: Client-Facing vs Microservice Communication, accessed February 9, 2026, https://websocket.org/comparisons/grpc/
+            5. WebSocket vs gRPC: Performance Comparison for Enterprises - Lightyear, accessed February 9, 2026, https://lightyear.ai/tips/websocket-versus-grpc-performance
+            6. gRPC Anywhere - Red Hat, accessed February 9, 2026, https://www.redhat.com/en/blog/grpc-anywhere
+            7. Can gRPC replace REST and WebSockets for Web Application Communication?, accessed February 9, 2026, https://grpc.io/blog/postman-grpcweb/
+            8. Streaming Log Files in Real-Time with Golang and WebSockets: A 'tail -f' Simulation | by Jeremy Lu | Better Programming, accessed February 9, 2026, https://betterprogramming.pub/streaming-log-files-in-real-time-with-golang-and-websockets-a-tail-f-simulation-89e080bebfe
+            9. mitmproxy package - github.com/kardianos/mitmproxy - Go Packages, accessed February 9, 2026, https://pkg.go.dev/github.com/kardianos/mitmproxy
+            10. gRPC vs. WebSocket: Key differences and which to use - Ably Realtime, accessed February 9, 2026, https://ably.com/topic/grpc-vs-websocket
+            11. Popular TUI packages? : r/golang - Reddit, accessed February 9, 2026, https://www.reddit.com/r/golang/comments/1nakld1/popular_tui_packages/
+            12. charmbracelet/bubbletea: A powerful little TUI framework - GitHub, accessed February 9, 2026, https://github.com/charmbracelet/bubbletea
+            13. Tips for building Bubble Tea programs, accessed February 9, 2026, https://leg100.github.io/en/posts/building-bubbletea-programs/
+            14. alecthomas/chroma: A general purpose syntax highlighter in pure Go - GitHub, accessed February 9, 2026, https://github.com/alecthomas/chroma
+            15. CEL-Go Codelab: Fast, safe, embedded expressions, accessed February 9, 2026, https://codelabs.developers.google.com/codelabs/cel-go
+            16. google/cel-go: Fast, portable, non-Turing complete ... - GitHub, accessed February 9, 2026, https://github.com/google/cel-go
+            17. How to Host and Run LLMs Locally with Ollama & llama.cpp - YouTube, accessed February 9, 2026, https://www.youtube.com/watch?v=AHlx91CKmmc
+            18. Exploring Ollama: Running LLMs Locally with Go - ByteSizeGo, accessed February 9, 2026, https://www.bytesizego.com/blog/exploring-ollama-running-llms-locally-with-go
+            19. LLMs for Go Developers: A Plug-and-Play Approach with llama.cpp | by Vadim Filin, accessed February 9, 2026, https://medium.com/@filinvadim/llms-for-go-developers-a-plug-and-play-approach-with-llama-cpp-4ccccb6d04df
+            20. Getting insight into embedded JavaScript runtimes in Go : r/golang - Reddit, accessed February 9, 2026, https://www.reddit.com/r/golang/comments/1ppy20m/getting_insight_into_embedded_javascript_runtimes/
+            21. dop251/goja: ECMAScript/JavaScript engine in pure Go - GitHub, accessed February 9, 2026, https://github.com/dop251/goja
+            22. Scripting - Proxyman, accessed February 9, 2026, https://docs.proxyman.com/scripting/script
