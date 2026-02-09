@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/tui"
@@ -22,6 +24,7 @@ func main() {
 	dataDir := flag.String("data-dir", defaultDataDir(), "data directory for CA certs")
 	bufSize := flag.Int("buffer-size", 10000, "max flows in memory")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -44,6 +47,14 @@ func main() {
 		fatal("proxy init: %v", err)
 	}
 
+	if *installCA {
+		if err := certutil.Install(p.CACertPath()); err != nil {
+			fatal("install CA: %v", err)
+		}
+		fmt.Println("CA certificate installed successfully:", p.CACertPath())
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "CA cert: %s\n", p.CACertPath())
 	fmt.Fprintf(os.Stderr, "Proxy listening on %s\n", addr)
 
@@ -59,7 +70,7 @@ func main() {
 	}
 	cancel()
 	p.Stop()
-	if err := <-proxyErr; err != nil && err != context.Canceled {
+	if err := <-proxyErr; err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "proxy: %v\n", err)
 	}
 }

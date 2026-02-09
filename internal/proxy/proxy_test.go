@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,11 +29,20 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-func setupProxy(t *testing.T) (*Proxy, *store.RingBuffer, int) {
+type setupOpt func(*Proxy)
+
+func withSslInsecure() setupOpt {
+	return func(p *Proxy) { p.SslInsecure = true }
+}
+
+func setupProxy(t *testing.T, opts ...setupOpt) (*Proxy, *store.RingBuffer, int) {
 	t.Helper()
 	s := store.New(1000)
 	dataDir := t.TempDir()
 	p := New(s, dataDir)
+	for _, o := range opts {
+		o(p)
+	}
 	port := freePort(t)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	if err := p.Init(addr); err != nil {
@@ -194,6 +205,201 @@ func TestBodyTruncation(t *testing.T) {
 		}
 	}
 	t.Error("flow for /big not found")
+}
+
+// findFlow polls the store for a flow matching the given path and returns its meta + data.
+func findFlow(t *testing.T, s *store.RingBuffer, path string) (store.FlowMeta, *store.FlowData) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		flows, _ := s.List(nil, 0, 0)
+		for _, f := range flows {
+			if f.Path == path {
+				_, d, _ := s.Get(f.ID)
+				return f, d
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("flow for %s not found", path)
+	return store.FlowMeta{}, nil
+}
+
+func TestHTTPSFlowCapture(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		fmt.Fprint(w, `{"secure":true}`)
+	}))
+	defer ts.Close()
+
+	_, s, port := setupProxy(t, withSslInsecure())
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/v1/secure")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	meta, _ := findFlow(t, s, "/v1/secure")
+
+	if meta.Scheme != "https" {
+		t.Errorf("Scheme = %q, want https", meta.Scheme)
+	}
+	if meta.StatusCode != 200 {
+		t.Errorf("StatusCode = %d, want 200", meta.StatusCode)
+	}
+	if meta.State != store.StateCompleted {
+		t.Errorf("State = %d, want Completed", meta.State)
+	}
+	if meta.Method != "GET" {
+		t.Errorf("Method = %q, want GET", meta.Method)
+	}
+}
+
+func TestRequestResponseBodyCapture(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		// Echo request body back as response
+		w.Write(body)
+	}))
+	defer ts.Close()
+
+	_, s, port := setupProxy(t)
+	client := proxyClient(port)
+
+	reqBody := `{"name":"test"}`
+	resp, err := client.Post(ts.URL+"/echo", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	meta, data := findFlow(t, s, "/echo")
+
+	if meta.State != store.StateCompleted {
+		t.Errorf("State = %d, want Completed", meta.State)
+	}
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	if string(data.RequestBody) != reqBody {
+		t.Errorf("RequestBody = %q, want %q", data.RequestBody, reqBody)
+	}
+	if string(data.ResponseBody) != reqBody {
+		t.Errorf("ResponseBody = %q, want %q", data.ResponseBody, reqBody)
+	}
+	if ct := data.RequestHeaders.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("request Content-Type = %q, want application/json", ct)
+	}
+	if ct := data.ResponseHeaders.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("response Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestPOSTMethodCapture(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		fmt.Fprint(w, `{"created":true}`)
+	}))
+	defer ts.Close()
+
+	_, s, port := setupProxy(t)
+	client := proxyClient(port)
+
+	body := `{"item":"widget"}`
+	resp, err := client.Post(ts.URL+"/items", "application/json", bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	meta, data := findFlow(t, s, "/items")
+
+	if meta.Method != "POST" {
+		t.Errorf("Method = %q, want POST", meta.Method)
+	}
+	if meta.StatusCode != 201 {
+		t.Errorf("StatusCode = %d, want 201", meta.StatusCode)
+	}
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	if string(data.RequestBody) != body {
+		t.Errorf("RequestBody = %q, want %q", data.RequestBody, body)
+	}
+}
+
+func TestServerErrorCapture(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(500)
+		fmt.Fprint(w, "internal server error")
+	}))
+	defer ts.Close()
+
+	_, s, port := setupProxy(t)
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/fail")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	meta, data := findFlow(t, s, "/fail")
+
+	if meta.StatusCode != 500 {
+		t.Errorf("StatusCode = %d, want 500", meta.StatusCode)
+	}
+	if meta.State != store.StateCompleted {
+		t.Errorf("State = %d, want Completed (server responded)", meta.State)
+	}
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	if string(data.ResponseBody) != "internal server error" {
+		t.Errorf("ResponseBody = %q, want %q", data.ResponseBody, "internal server error")
+	}
+}
+
+func TestMultipleHeaderValues(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Set-Cookie", "a=1; Path=/")
+		w.Header().Add("Set-Cookie", "b=2; Path=/")
+		w.Header().Add("Set-Cookie", "c=3; Path=/")
+		w.WriteHeader(200)
+		fmt.Fprint(w, "ok")
+	}))
+	defer ts.Close()
+
+	_, s, port := setupProxy(t)
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/cookies")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	_, data := findFlow(t, s, "/cookies")
+
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	cookies := data.ResponseHeaders.Values("Set-Cookie")
+	if len(cookies) != 3 {
+		t.Errorf("Set-Cookie count = %d, want 3; values: %v", len(cookies), cookies)
+	}
 }
 
 func TestInitPortZero(t *testing.T) {

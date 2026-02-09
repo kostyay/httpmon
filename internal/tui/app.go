@@ -9,15 +9,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kostyay/httpmon/internal/filter"
-	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
 type tickMsg time.Time
 
 type App struct {
-	store *store.RingBuffer
-	proxy *proxy.Proxy
+	store FlowReader
+	proxy ProxyInfo
 
 	// view state
 	showDetail  bool
@@ -40,7 +39,7 @@ type App struct {
 	ready         bool
 }
 
-func NewApp(s *store.RingBuffer, p *proxy.Proxy) *App {
+func NewApp(s FlowReader, p ProxyInfo) *App {
 	ti := textinput.New()
 	ti.Placeholder = "/ to filter..."
 	ti.CharLimit = 256
