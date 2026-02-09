@@ -19,6 +19,9 @@ type Proxy struct {
 
 	// caDir is the directory containing CA cert files.
 	caDir string
+
+	// SslInsecure skips TLS verification for upstream servers.
+	SslInsecure bool
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -39,6 +42,7 @@ func (p *Proxy) Init(addr string) error {
 		Addr:              addr,
 		StreamLargeBodies: maxBodySize,
 		CaRootPath:        p.caDir,
+		SslInsecure:       p.SslInsecure,
 	}
 
 	proxy, err := mp.NewProxy(opts)
