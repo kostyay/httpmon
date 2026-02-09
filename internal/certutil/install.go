@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -40,11 +41,11 @@ func installDarwin(certPath string) error {
 func installLinux(certPath string) error {
 	dest := "/usr/local/share/ca-certificates/httpmon.crt"
 
-	data, err := os.ReadFile(certPath)
+	data, err := os.ReadFile(filepath.Clean(certPath))
 	if err != nil {
 		return fmt.Errorf("read cert: %w", err)
 	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
+	if err := os.WriteFile(dest, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", dest, err)
 	}
 
