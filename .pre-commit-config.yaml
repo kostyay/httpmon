@@ -1,0 +1,11 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.88.2
+    hooks:
+      - id: trufflehog
+        entry: trufflehog git file://. --only-verified --fail
