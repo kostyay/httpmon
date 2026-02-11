@@ -49,7 +49,7 @@ const maxBodySize = 5 * 1024 * 1024 // 5 MB
 func (p *Proxy) Init(addr string) error {
 	// Redirect go-mitmproxy's logrus output to a file inside dataDir.
 	logPath := filepath.Join(p.caDir, "proxy.log")
-	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path derived from internal dataDir
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
@@ -105,7 +105,7 @@ func (p *Proxy) Stop() {
 	defer cancel()
 	_ = p.mp.Shutdown(ctx)
 	if p.logFile != nil {
-		p.logFile.Close()
+		_ = p.logFile.Close()
 	}
 }
 

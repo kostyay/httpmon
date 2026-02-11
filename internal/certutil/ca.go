@@ -47,7 +47,7 @@ func EnsureCA(dir string) (string, error) {
 	}
 
 	// Write combined key+cert (what go-mitmproxy loads).
-	combo, err := os.Create(caPath)
+	combo, err := os.Create(caPath) // #nosec G304 -- path derived from internal dir constant
 	if err != nil {
 		return "", err
 	}
@@ -63,15 +63,15 @@ func EnsureCA(dir string) (string, error) {
 	// Write cert-only files.
 	certBlock := &pem.Block{Type: "CERTIFICATE", Bytes: certDER}
 	for _, name := range []string{caCertFileName, caCertCerName} {
-		f, err := os.Create(filepath.Join(dir, name))
+		f, err := os.Create(filepath.Join(dir, name)) // #nosec G304 -- name is a package constant
 		if err != nil {
 			return "", err
 		}
 		if err := pem.Encode(f, certBlock); err != nil {
-			f.Close()
+			_ = f.Close()
 			return "", err
 		}
-		f.Close()
+		_ = f.Close()
 	}
 
 	return certPath, nil
@@ -116,7 +116,7 @@ func generateCA() (*rsa.PrivateKey, []byte, error) {
 
 // hasCorrectCN checks whether the CA file exists and has CN=httpmon-ca.
 func hasCorrectCN(caPath string) bool {
-	data, err := os.ReadFile(caPath)
+	data, err := os.ReadFile(caPath) // #nosec G304 -- internal path from EnsureCA
 	if err != nil {
 		return false
 	}
