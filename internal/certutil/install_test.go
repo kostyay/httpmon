@@ -33,18 +33,20 @@ func TestInstall_EmptyPath(t *testing.T) {
 }
 
 func TestInstall_DirectoryInsteadOfFile(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("skipping: requires sudo")
+	}
 	dir := t.TempDir()
 	err := Install(dir)
-	// On darwin/linux this proceeds to exec which will fail,
-	// but the important thing is it doesn't panic.
 	if err == nil {
 		t.Fatal("expected error when passing directory")
 	}
 }
 
 func TestInstall_ValidCertFile(t *testing.T) {
-	// Create a dummy cert file — the platform command will fail
-	// (not root / wrong format) but we verify it gets past the stat check.
+	if os.Getuid() != 0 {
+		t.Skip("skipping: requires sudo")
+	}
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "test-ca.pem")
 	if err := os.WriteFile(certPath, []byte("not-a-real-cert"), 0o644); err != nil {
@@ -52,8 +54,7 @@ func TestInstall_ValidCertFile(t *testing.T) {
 	}
 
 	err := Install(certPath)
-	// Expect failure from the platform command (not root), not from stat.
 	if err == nil {
-		t.Fatal("expected error from platform command (not running as root)")
+		t.Fatal("expected error from platform command")
 	}
 }

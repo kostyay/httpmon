@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/lqqyt2423/go-mitmproxy v1.8.8
+	github.com/sirupsen/logrus v1.9.4
 )
 
 require (
@@ -34,7 +35,6 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/net v0.50.0 // indirect

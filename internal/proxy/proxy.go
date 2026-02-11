@@ -3,11 +3,14 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
+	log "github.com/sirupsen/logrus"
 
+	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -19,6 +22,12 @@ type Proxy struct {
 
 	// caDir is the directory containing CA cert files.
 	caDir string
+
+	// caCertPath is set after EnsureCA generates/loads the cert.
+	caCertPath string
+
+	// logFile holds the open log file handle (closed on Stop).
+	logFile *os.File
 
 	// SslInsecure skips TLS verification for upstream servers.
 	SslInsecure bool
@@ -38,6 +47,21 @@ const maxBodySize = 5 * 1024 * 1024 // 5 MB
 // Init sets up the MITM proxy (CA generation + port validation).
 // This must be called before Serve. addr is e.g. ":8080".
 func (p *Proxy) Init(addr string) error {
+	// Redirect go-mitmproxy's logrus output to a file inside dataDir.
+	logPath := filepath.Join(p.caDir, "proxy.log")
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path derived from internal dataDir
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	p.logFile = lf
+	log.SetOutput(lf)
+
+	certPath, err := certutil.EnsureCA(p.caDir)
+	if err != nil {
+		return fmt.Errorf("ensure CA: %w", err)
+	}
+	p.caCertPath = certPath
+
 	opts := &mp.Options{
 		Addr:              addr,
 		StreamLargeBodies: maxBodySize,
@@ -80,6 +104,9 @@ func (p *Proxy) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = p.mp.Shutdown(ctx)
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+	}
 }
 
 // Addr returns the listen address passed to Init.
@@ -89,5 +116,5 @@ func (p *Proxy) Addr() string {
 
 // CACertPath returns the path to the CA certificate file for user trust.
 func (p *Proxy) CACertPath() string {
-	return filepath.Join(p.caDir, "mitmproxy-ca-cert.pem")
+	return p.caCertPath
 }
