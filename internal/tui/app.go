@@ -18,6 +18,8 @@ type App struct {
 	store FlowReader
 	proxy ProxyInfo
 
+	caTrusted bool
+
 	// view state
 	showDetail  bool
 	selectedID  store.FlowID
@@ -39,7 +41,7 @@ type App struct {
 	ready         bool
 }
 
-func NewApp(s FlowReader, p ProxyInfo) *App {
+func NewApp(s FlowReader, p ProxyInfo, caTrusted bool) *App {
 	ti := textinput.New()
 	ti.Placeholder = "/ to filter..."
 	ti.CharLimit = 256
@@ -47,6 +49,7 @@ func NewApp(s FlowReader, p ProxyInfo) *App {
 	return &App{
 		store:       s,
 		proxy:       p,
+		caTrusted:   caTrusted,
 		filterInput: ti,
 	}
 }
@@ -248,13 +251,17 @@ func (a *App) proxyAddr() string {
 
 func (a *App) statusText() string {
 	addr := a.proxyAddr()
+	var warning string
+	if !a.caTrusted {
+		warning = styleWarning.Render("CA NOT TRUSTED") + "  "
+	}
 	info := fmt.Sprintf("%d flows | Proxy %s", a.totalFlows, addr)
 	help := "? help  / filter"
-	gap := a.width - len(info) - len(help)
+	gap := a.width - len(warning) - len(info) - len(help)
 	if gap < 2 {
 		gap = 2
 	}
 	return styleStatusBar.Width(a.width).Render(
-		info + fmt.Sprintf("%*s", gap, help),
+		warning + info + fmt.Sprintf("%*s", gap, help),
 	)
 }

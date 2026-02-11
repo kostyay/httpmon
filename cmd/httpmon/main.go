@@ -63,7 +63,8 @@ func main() {
 	proxyErr := make(chan error, 1)
 	go func() { proxyErr <- p.Serve(ctx) }()
 
-	app := tui.NewApp(s, p)
+	caTrusted := certutil.IsInstalled(p.CACertPath())
+	app := tui.NewApp(s, p, caTrusted)
 	prog := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := prog.Run(); err != nil {
 		fatal("TUI error: %v", err)
