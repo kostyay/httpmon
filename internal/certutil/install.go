@@ -6,7 +6,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
+
+// IsInstalled checks whether the CA certificate is trusted by the system.
+func IsInstalled(certPath string) bool {
+	if _, err := os.Stat(certPath); err != nil {
+		return false
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		out, err := exec.Command("security", "find-certificate",
+			"-c", "mitmproxy", "/Library/Keychains/System.keychain").CombinedOutput()
+		return err == nil && strings.Contains(string(out), "BEGIN CERTIFICATE")
+	case "linux":
+		_, err := os.Stat("/usr/local/share/ca-certificates/httpmon.crt")
+		return err == nil
+	default:
+		return false
+	}
+}
 
 // Install adds the CA certificate at certPath to the system trust store.
 // Requires root/sudo on both darwin and linux.
@@ -26,7 +45,7 @@ func Install(certPath string) error {
 }
 
 func installDarwin(certPath string) error {
-	cmd := exec.Command("security", "add-trusted-cert",
+	cmd := exec.Command("security", "add-trusted-cert", // #nosec G204 -- certPath is an internal file path, not user input
 		"-d", "-r", "trustRoot",
 		"-k", "/Library/Keychains/System.keychain",
 		certPath,

@@ -34,6 +34,10 @@ var (
 	styleInactiveTab = lipgloss.NewStyle().
 				Foreground(colorMuted)
 
+	styleWarning = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#cb2431", Dark: "#ff6670"}).
+			Bold(true)
+
 	styleDetailHeader = lipgloss.NewStyle().Bold(true)
 	styleSection      = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
 )
