@@ -121,7 +121,7 @@ func itoa(i int) string {
 
 func newTestApp(n int) *App {
 	s := seedStore(n)
-	app := NewApp(s, nil)
+	app := NewApp(s, nil, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 	return app
@@ -129,7 +129,7 @@ func newTestApp(n int) *App {
 
 func newMockApp(n int) *App {
 	m := seedMock(n)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"})
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 	return app
@@ -267,7 +267,7 @@ func TestFilterByHost(t *testing.T) {
 	m.data["a"] = &store.FlowData{}
 	m.data["b"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"})
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
@@ -297,7 +297,7 @@ func TestClearFilter(t *testing.T) {
 	m.data["a"] = &store.FlowData{}
 	m.data["b"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"})
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
@@ -411,7 +411,7 @@ func TestNextFlowBoundaries(t *testing.T) {
 }
 
 func TestProxyAddrNilFallback(t *testing.T) {
-	app := NewApp(seedMock(1), nil)
+	app := NewApp(seedMock(1), nil, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
@@ -422,7 +422,7 @@ func TestProxyAddrNilFallback(t *testing.T) {
 }
 
 func TestProxyAddrFromMock(t *testing.T) {
-	app := NewApp(seedMock(1), &mockProxyInfo{addr: ":3128"})
+	app := NewApp(seedMock(1), &mockProxyInfo{addr: ":3128"}, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
@@ -435,7 +435,7 @@ func TestProxyAddrFromMock(t *testing.T) {
 // TestRingBufferSatisfiesFlowReader confirms the real store works through the interface.
 func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 	s := seedStore(3)
-	app := NewApp(s, nil)
+	app := NewApp(s, nil, true)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
@@ -448,5 +448,25 @@ func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 	view := app.View()
 	if !strings.Contains(view, "api.example.com") {
 		t.Error("detail should show host from real RingBuffer")
+	}
+}
+
+func TestStatusBarShowsCAWarning(t *testing.T) {
+	m := seedMock(1)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, false)
+	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	app.Update(tickMsg(time.Now()))
+
+	view := app.View()
+	if !strings.Contains(view, "CA NOT TRUSTED") {
+		t.Error("status bar should show CA NOT TRUSTED when caTrusted=false")
+	}
+}
+
+func TestStatusBarNoWarningWhenTrusted(t *testing.T) {
+	app := newMockApp(1) // caTrusted=true
+	view := app.View()
+	if strings.Contains(view, "CA NOT TRUSTED") {
+		t.Error("status bar should NOT show CA NOT TRUSTED when caTrusted=true")
 	}
 }
