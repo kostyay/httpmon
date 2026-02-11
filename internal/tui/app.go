@@ -37,6 +37,7 @@ type App struct {
 	detailTab   int // 0=request, 1=response
 	detailVP    viewport.Model
 	detailReady bool
+	detailRaw   bool // false=pretty-print, true=raw
 
 	width, height int
 	ready         bool
@@ -201,6 +202,9 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.detailVP.HalfPageDown()
 	case "u":
 		a.detailVP.HalfPageUp()
+	case "p":
+		a.detailRaw = !a.detailRaw
+		a.updateDetailContent()
 	case "n":
 		a.nextFlow(1)
 	case "N":
@@ -241,7 +245,7 @@ func (a *App) updateDetailContent() {
 		return
 	}
 	darkBg := lipgloss.HasDarkBackground()
-	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, true))
+	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw))
 }
 
 func (a *App) proxyAddr() string {
