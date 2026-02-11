@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kostyay/httpmon/internal/filter"
 	"github.com/kostyay/httpmon/internal/store"
@@ -33,8 +34,8 @@ type App struct {
 	storeFilter store.Filter // nil = match all
 
 	// detail view state
-	detailTab    int // 0=request, 1=response
-	detailVP     viewport.Model
+	detailTab   int // 0=request, 1=response
+	detailVP    viewport.Model
 	detailReady bool
 
 	width, height int
@@ -239,7 +240,8 @@ func (a *App) updateDetailContent() {
 		a.detailVP.SetContent("Flow no longer available. Press Esc to return.")
 		return
 	}
-	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width))
+	darkBg := lipgloss.HasDarkBackground()
+	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, true))
 }
 
 func (a *App) proxyAddr() string {
