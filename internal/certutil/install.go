@@ -45,7 +45,7 @@ func Install(certPath string) error {
 }
 
 func installDarwin(certPath string) error {
-	cmd := exec.Command("security", "add-trusted-cert",
+	cmd := exec.Command("security", "add-trusted-cert", // #nosec G204 -- certPath is an internal file path, not user input
 		"-d", "-r", "trustRoot",
 		"-k", "/Library/Keychains/System.keychain",
 		certPath,
