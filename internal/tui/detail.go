@@ -61,7 +61,11 @@ func (a *App) viewDetail() string {
 
 	// Status
 	scrollPct := fmt.Sprintf("%d%%", int(a.detailVP.ScrollPercent()*100))
-	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  Esc back  %s", scrollPct)
+	prettyLabel := "p:pretty"
+	if a.detailRaw {
+		prettyLabel = "p:raw"
+	}
+	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  %s  Esc back  %s", prettyLabel, scrollPct)
 	b.WriteString(styleStatusBar.Width(a.width).Render(truncate(bar, a.width)))
 
 	return b.String()
