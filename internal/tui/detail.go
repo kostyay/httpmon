@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kostyay/httpmon/internal/highlight"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -66,7 +67,7 @@ func (a *App) viewDetail() string {
 	return b.String()
 }
 
-func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int) string {
+func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int, darkBg bool, prettyJSON bool) string {
 	if meta == nil {
 		return "Flow no longer available."
 	}
@@ -74,15 +75,15 @@ func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width
 	var b strings.Builder
 
 	if tab == 0 {
-		renderRequestDetail(&b, meta, data)
+		renderRequestDetail(&b, meta, data, darkBg, prettyJSON)
 	} else {
-		renderResponseDetail(&b, meta, data)
+		renderResponseDetail(&b, meta, data, darkBg, prettyJSON)
 	}
 
 	return b.String()
 }
 
-func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData) {
+func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool) {
 	b.WriteString(styleSection.Render("▸ General"))
 	b.WriteString("\n")
 	fmt.Fprintf(b, "  Method: %s\n", meta.Method)
@@ -95,13 +96,17 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 	}
 
 	if data != nil && len(data.RequestBody) > 0 {
+		reqCT := ""
+		if data.RequestHeaders != nil {
+			reqCT = data.RequestHeaders.Get("Content-Type")
+		}
 		b.WriteString(styleSection.Render("▸ Body"))
 		b.WriteString("\n")
-		renderBody(b, data.RequestBody)
+		renderBody(b, data.RequestBody, reqCT, darkBg, prettyJSON)
 	}
 }
 
-func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData) {
+func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool) {
 	if meta.State == store.StateInProgress {
 		b.WriteString(styleMuted.Render("Awaiting response..."))
 		b.WriteString("\n")
@@ -123,7 +128,7 @@ func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.
 	if data != nil && len(data.ResponseBody) > 0 {
 		b.WriteString(styleSection.Render("▸ Body"))
 		b.WriteString("\n")
-		renderBody(b, data.ResponseBody)
+		renderBody(b, data.ResponseBody, meta.ContentType, darkBg, prettyJSON)
 	}
 }
 
@@ -144,11 +149,13 @@ func renderHeaders(b *strings.Builder, title string, h map[string][]string) {
 	b.WriteString("\n")
 }
 
-func renderBody(b *strings.Builder, body []byte) {
-	lines := strings.Split(string(body), "\n")
+func renderBody(b *strings.Builder, body []byte, contentType string, darkBg bool, prettyJSON bool) {
+	highlighted := highlight.Highlight(body, contentType, darkBg, prettyJSON)
+	lines := strings.Split(highlighted, "\n")
 	if len(lines) > maxBodyLines {
+		totalLines := len(lines)
 		lines = lines[:maxBodyLines]
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("... truncated (%d lines total)", len(strings.Split(string(body), "\n")))))
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("... truncated (%d lines total)", totalLines)))
 	}
 	for _, line := range lines {
 		b.WriteString("  " + line + "\n")
