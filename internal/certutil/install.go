@@ -17,7 +17,7 @@ func IsInstalled(certPath string) bool {
 	switch runtime.GOOS {
 	case "darwin":
 		out, err := exec.Command("security", "find-certificate",
-			"-c", "mitmproxy", "/Library/Keychains/System.keychain").CombinedOutput()
+			"-c", CAName, "-p", "/Library/Keychains/System.keychain").CombinedOutput()
 		return err == nil && strings.Contains(string(out), "BEGIN CERTIFICATE")
 	case "linux":
 		_, err := os.Stat("/usr/local/share/ca-certificates/httpmon.crt")
@@ -45,11 +45,12 @@ func Install(certPath string) error {
 }
 
 func installDarwin(certPath string) error {
-	cmd := exec.Command("security", "add-trusted-cert", // #nosec G204 -- certPath is an internal file path, not user input
+	cmd := exec.Command("sudo", "security", "add-trusted-cert", // #nosec G204 -- certPath is an internal file path, not user input
 		"-d", "-r", "trustRoot",
 		"-k", "/Library/Keychains/System.keychain",
 		certPath,
 	)
+	cmd.Stdin = os.Stdin
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("security add-trusted-cert: %s: %w", out, err)
@@ -60,15 +61,20 @@ func installDarwin(certPath string) error {
 func installLinux(certPath string) error {
 	dest := "/usr/local/share/ca-certificates/httpmon.crt"
 
+	// Use sudo tee to write cert to privileged path.
 	data, err := os.ReadFile(filepath.Clean(certPath))
 	if err != nil {
 		return fmt.Errorf("read cert: %w", err)
 	}
-	if err := os.WriteFile(dest, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", dest, err)
+
+	tee := exec.Command("sudo", "tee", dest) // #nosec G204 -- dest is a constant
+	tee.Stdin = strings.NewReader(string(data))
+	tee.Stdout = nil // suppress tee stdout
+	if out, err := tee.CombinedOutput(); err != nil {
+		return fmt.Errorf("write %s: %s: %w", dest, out, err)
 	}
 
-	cmd := exec.Command("update-ca-certificates")
+	cmd := exec.Command("sudo", "update-ca-certificates")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("update-ca-certificates: %s: %w", out, err)
