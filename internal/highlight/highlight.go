@@ -30,28 +30,25 @@ func Highlight(body []byte, contentType string, darkBg bool, prettyJSON bool) st
 		return string(body)
 	}
 
-	src := body
 	if prettyJSON && isJSON(mediaType) {
 		if pretty, err := prettyPrintJSON(body); err == nil {
-			src = pretty
+			body = pretty
 		}
 	}
 
-	style := styles.Get("monokai")
+	styleName := "monokai"
 	if !darkBg {
-		style = styles.Get("github")
+		styleName = "github"
 	}
 
-	formatter := formatters.Get("terminal256")
-
-	iter, err := lexer.Tokenise(nil, string(src))
+	iter, err := lexer.Tokenise(nil, string(body))
 	if err != nil {
-		return string(src)
+		return string(body)
 	}
 
 	var buf bytes.Buffer
-	if err := formatter.Format(&buf, style, iter); err != nil {
-		return string(src)
+	if err := formatters.Get("terminal256").Format(&buf, styles.Get(styleName), iter); err != nil {
+		return string(body)
 	}
 
 	return strings.TrimRight(buf.String(), "\n")
@@ -69,8 +66,6 @@ func prettyPrintJSON(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// mimeToLexer maps MIME media types to chroma lexer names.
-// Only includes types relevant to HTTP debugging.
 var mimeToLexer = map[string]string{
 	"application/json":                "json",
 	"application/ld+json":             "json-ld",

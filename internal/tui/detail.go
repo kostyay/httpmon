@@ -36,23 +36,9 @@ func (a *App) viewDetail() string {
 	b.WriteString("\n")
 
 	// Tabs
-	reqTab := "[Request]"
-	respTab := "Response"
-	if a.detailTab == 1 {
-		reqTab = "Request"
-		respTab = "[Response]"
-	}
-	if a.detailTab == 0 {
-		b.WriteString(styleActiveTab.Render(reqTab))
-	} else {
-		b.WriteString(styleInactiveTab.Render(reqTab))
-	}
+	b.WriteString(renderTab("Request", a.detailTab == 0))
 	b.WriteString("  ")
-	if a.detailTab == 1 {
-		b.WriteString(styleActiveTab.Render(respTab))
-	} else {
-		b.WriteString(styleInactiveTab.Render(respTab))
-	}
+	b.WriteString(renderTab("Response", a.detailTab == 1))
 	b.WriteString("\n\n")
 
 	// Viewport content
@@ -61,14 +47,21 @@ func (a *App) viewDetail() string {
 
 	// Status
 	scrollPct := fmt.Sprintf("%d%%", int(a.detailVP.ScrollPercent()*100))
-	prettyLabel := "p:pretty"
+	mode := "pretty"
 	if a.detailRaw {
-		prettyLabel = "p:raw"
+		mode = "raw"
 	}
-	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  %s  Esc back  %s", prettyLabel, scrollPct)
+	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  p:%s  Esc back  %s", mode, scrollPct)
 	b.WriteString(styleStatusBar.Width(a.width).Render(truncate(bar, a.width)))
 
 	return b.String()
+}
+
+func renderTab(label string, active bool) string {
+	if active {
+		return styleActiveTab.Render("[" + label + "]")
+	}
+	return styleInactiveTab.Render(label)
 }
 
 func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int, darkBg bool, prettyJSON bool) string {
@@ -95,18 +88,18 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 	fmt.Fprintf(b, "  Scheme: %s\n", meta.Scheme)
 	b.WriteString("\n")
 
-	if data != nil && data.RequestHeaders != nil {
+	if data == nil {
+		return
+	}
+
+	if data.RequestHeaders != nil {
 		renderHeaders(b, "Request Headers", data.RequestHeaders)
 	}
 
-	if data != nil && len(data.RequestBody) > 0 {
-		reqCT := ""
-		if data.RequestHeaders != nil {
-			reqCT = data.RequestHeaders.Get("Content-Type")
-		}
+	if len(data.RequestBody) > 0 {
 		b.WriteString(styleSection.Render("▸ Body"))
 		b.WriteString("\n")
-		renderBody(b, data.RequestBody, reqCT, darkBg, prettyJSON)
+		renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), darkBg, prettyJSON)
 	}
 }
 
@@ -125,11 +118,15 @@ func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.
 	fmt.Fprintf(b, "  Size: %s\n", formatSize(meta.SizeBytes))
 	b.WriteString("\n")
 
-	if data != nil && data.ResponseHeaders != nil {
+	if data == nil {
+		return
+	}
+
+	if data.ResponseHeaders != nil {
 		renderHeaders(b, "Response Headers", data.ResponseHeaders)
 	}
 
-	if data != nil && len(data.ResponseBody) > 0 {
+	if len(data.ResponseBody) > 0 {
 		b.WriteString(styleSection.Render("▸ Body"))
 		b.WriteString("\n")
 		renderBody(b, data.ResponseBody, meta.ContentType, darkBg, prettyJSON)

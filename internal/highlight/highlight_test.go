@@ -5,70 +5,121 @@ import (
 	"testing"
 )
 
-func TestJSONHighlighted(t *testing.T) {
-	out := Highlight([]byte(`{"key":"value"}`), "application/json", true, false)
+func TestHighlight(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        []byte
+		contentType string
+		darkBg      bool
+		prettyJSON  bool
+		check       func(t *testing.T, out string)
+	}{
+		{
+			name:        "json produces ANSI",
+			body:        []byte(`{"key":"value"}`),
+			contentType: "application/json",
+			darkBg:      true,
+			check:       expectANSI,
+		},
+		{
+			name:        "json pretty-print adds newlines",
+			body:        []byte(`{"a":1,"b":2}`),
+			contentType: "application/json",
+			darkBg:      true,
+			prettyJSON:  true,
+			check: func(t *testing.T, out string) {
+				t.Helper()
+				if !strings.Contains(out, "\n") {
+					t.Error("pretty-printed JSON should contain newlines")
+				}
+			},
+		},
+		{
+			name:        "json raw stays single-line",
+			body:        []byte(`{"a":1}`),
+			contentType: "application/json",
+			darkBg:      true,
+			check: func(t *testing.T, out string) {
+				t.Helper()
+				lines := strings.Split(strings.TrimSpace(out), "\n")
+				if len(lines) > 1 {
+					t.Errorf("raw JSON should stay single-line, got %d lines", len(lines))
+				}
+			},
+		},
+		{
+			name:        "html produces ANSI",
+			body:        []byte(`<html><body>Hello</body></html>`),
+			contentType: "text/html",
+			darkBg:      true,
+			check:       expectANSI,
+		},
+		{
+			name:        "unknown content-type returns plaintext",
+			body:        []byte("hello world"),
+			contentType: "application/octet-stream",
+			darkBg:      true,
+			check: func(t *testing.T, out string) {
+				t.Helper()
+				if out != "hello world" {
+					t.Errorf("expected plain text, got %q", out)
+				}
+			},
+		},
+		{
+			name:        "empty body returns empty string",
+			body:        []byte{},
+			contentType: "application/json",
+			darkBg:      true,
+			check: func(t *testing.T, out string) {
+				t.Helper()
+				if out != "" {
+					t.Errorf("expected empty string, got %q", out)
+				}
+			},
+		},
+		{
+			name:        "content-type with charset",
+			body:        []byte(`{"k":1}`),
+			contentType: "application/json; charset=utf-8",
+			darkBg:      true,
+			check:       expectANSI,
+		},
+		{
+			name:        "dark theme produces ANSI",
+			body:        []byte(`{"k":1}`),
+			contentType: "application/json",
+			darkBg:      true,
+			check:       expectANSI,
+		},
+		{
+			name:        "light theme produces ANSI",
+			body:        []byte(`{"k":1}`),
+			contentType: "application/json",
+			darkBg:      false,
+			check:       expectANSI,
+		},
+		{
+			name:        "invalid JSON with pretty-print still highlights",
+			body:        []byte(`{not json}`),
+			contentType: "application/json",
+			darkBg:      true,
+			prettyJSON:  true,
+			check:       expectANSI,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := Highlight(tt.body, tt.contentType, tt.darkBg, tt.prettyJSON)
+			tt.check(t, out)
+		})
+	}
+}
+
+func expectANSI(t *testing.T, out string) {
+	t.Helper()
 	if !strings.Contains(out, "\x1b[") {
-		t.Error("JSON output should contain ANSI escape codes")
-	}
-}
-
-func TestJSONPrettyPrint(t *testing.T) {
-	out := Highlight([]byte(`{"a":1,"b":2}`), "application/json", true, true)
-	if !strings.Contains(out, "\n") {
-		t.Error("pretty-printed JSON should contain newlines")
-	}
-}
-
-func TestJSONPrettyPrintDisabled(t *testing.T) {
-	out := Highlight([]byte(`{"a":1}`), "application/json", true, false)
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) > 1 {
-		t.Errorf("raw JSON should stay single-line, got %d lines", len(lines))
-	}
-}
-
-func TestHTMLHighlighted(t *testing.T) {
-	out := Highlight([]byte(`<html><body>Hello</body></html>`), "text/html", true, false)
-	if !strings.Contains(out, "\x1b[") {
-		t.Error("HTML output should contain ANSI escape codes")
-	}
-}
-
-func TestUnknownContentTypePlaintext(t *testing.T) {
-	out := Highlight([]byte("hello world"), "application/octet-stream", true, false)
-	if out != "hello world" {
-		t.Errorf("unknown content-type should return plain text, got %q", out)
-	}
-}
-
-func TestEmptyBody(t *testing.T) {
-	out := Highlight([]byte{}, "application/json", true, false)
-	if out != "" {
-		t.Errorf("empty body should return empty string, got %q", out)
-	}
-}
-
-func TestContentTypeWithCharset(t *testing.T) {
-	out := Highlight([]byte(`{"k":1}`), "application/json; charset=utf-8", true, false)
-	if !strings.Contains(out, "\x1b[") {
-		t.Error("should handle content-type with charset param")
-	}
-}
-
-func TestDarkVsLightTheme(t *testing.T) {
-	dark := Highlight([]byte(`{"k":1}`), "application/json", true, false)
-	light := Highlight([]byte(`{"k":1}`), "application/json", false, false)
-	if !strings.Contains(dark, "\x1b[") {
-		t.Error("dark theme should produce ANSI")
-	}
-	if !strings.Contains(light, "\x1b[") {
-		t.Error("light theme should produce ANSI")
-	}
-}
-
-func TestInvalidJSONPrettyPrintFallback(t *testing.T) {
-	out := Highlight([]byte(`{not json}`), "application/json", true, true)
-	if !strings.Contains(out, "\x1b[") {
-		t.Error("invalid JSON should still get highlighted")
+		t.Errorf("expected ANSI escape codes, got %q", out)
 	}
 }

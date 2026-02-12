@@ -117,13 +117,12 @@ func (a *App) refreshFlows() {
 }
 
 func (a *App) applyFilter() {
-	text := a.filterInput.Value()
-	a.filterText = text
-	qf := filter.CompileQuick(text)
-	if qf == nil {
-		a.storeFilter = nil
-	} else {
+	a.filterText = a.filterInput.Value()
+	// Explicit nil assignment avoids non-nil interface wrapping a nil pointer.
+	if qf := filter.CompileQuick(a.filterText); qf != nil {
 		a.storeFilter = qf
+	} else {
+		a.storeFilter = nil
 	}
 	a.selectedIdx = 0
 }
@@ -180,14 +179,11 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
+	case "esc", "q":
 		a.showDetail = false
 		return a, nil
 	case "ctrl+c":
 		return a, tea.Quit
-	case "q":
-		a.showDetail = false
-		return a, nil
 	case "1", "left":
 		a.detailTab = 0
 		a.updateDetailContent()
