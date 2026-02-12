@@ -221,6 +221,197 @@ function onRequest(ctx) {}
 	}
 }
 
+// --- Integration smoke tests ---
+
+func TestIntegration_FullScriptLifecycle(t *testing.T) {
+	dir := t.TempDir()
+
+	// Script that modifies both request and response.
+	writeTestScript(t, dir, "rewrite.js", `// ---
+// name: Full Rewrite
+// match:
+//   - "*://api.example.com/*"
+// enabled: true
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-Req-Modified"] = "yes";
+    ctx.method = "POST";
+}
+
+function onResponse(ctx) {
+    ctx.headers["X-Resp-Modified"] = "yes";
+    ctx.status = 201;
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	// Test request modification.
+	reqCtx := &RequestContext{
+		Method:  "GET",
+		URL:     "https://api.example.com/users",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(reqCtx)
+
+	if reqCtx.Method != "POST" {
+		t.Errorf("method = %q, want POST", reqCtx.Method)
+	}
+	if reqCtx.Headers.Get("X-Req-Modified") != "yes" {
+		t.Error("request header not modified")
+	}
+	if reqCtx.Blocked {
+		t.Error("should not be blocked")
+	}
+
+	// Test response modification.
+	respCtx := &ResponseContext{
+		Status:  200,
+		Headers: http.Header{},
+		Body:    []byte("original"),
+	}
+	e.RunOnResponse(respCtx, "https://api.example.com/users")
+
+	if respCtx.Status != 201 {
+		t.Errorf("status = %d, want 201", respCtx.Status)
+	}
+	if respCtx.Headers.Get("X-Resp-Modified") != "yes" {
+		t.Error("response header not modified")
+	}
+}
+
+func TestIntegration_BlockedRequest(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "blocker.js", `// ---
+// name: Block All
+// match:
+//   - "*://*/*"
+// ---
+function onRequest(ctx) {
+    ctx.blocked = true;
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	ctx := &RequestContext{
+		Method:  "GET",
+		URL:     "https://example.com/blocked",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx)
+
+	if !ctx.Blocked {
+		t.Error("request should be blocked")
+	}
+}
+
+func TestIntegration_DisabledScriptSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "disabled.js", `// ---
+// name: Should Not Run
+// match:
+//   - "*://*/*"
+// enabled: false
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-Should-Not-Exist"] = "true";
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	ctx := &RequestContext{
+		Method:  "GET",
+		URL:     "https://example.com/test",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx)
+
+	if ctx.Headers.Get("X-Should-Not-Exist") != "" {
+		t.Error("disabled script should not have run")
+	}
+}
+
+func TestIntegration_NonMatchingURLSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "targeted.js", `// ---
+// name: API Only
+// match:
+//   - "*://api.example.com/*"
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-API"] = "matched";
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	ctx := &RequestContext{
+		Method:  "GET",
+		URL:     "https://other.example.com/test",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx)
+
+	if ctx.Headers.Get("X-API") != "" {
+		t.Error("non-matching URL should not trigger script")
+	}
+}
+
+func TestIntegration_ManagerToggleAndReload(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "toggle.js", `// ---
+// name: Toggle Test
+// match:
+//   - "*://*/*"
+// enabled: true
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-Toggle"] = "active";
+}
+`)
+
+	e := New()
+	mgr := NewManager(e, dir)
+	mgr.Reload()
+
+	// Initially enabled - should run.
+	ctx1 := &RequestContext{
+		Method:  "GET",
+		URL:     "https://example.com/test",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx1)
+	if ctx1.Headers.Get("X-Toggle") != "active" {
+		t.Error("enabled script should run")
+	}
+
+	// Toggle to disabled.
+	scripts := mgr.Scripts()
+	if len(scripts) != 1 {
+		t.Fatalf("expected 1 script, got %d", len(scripts))
+	}
+	if err := mgr.Toggle(scripts[0].FilePath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not run now.
+	ctx2 := &RequestContext{
+		Method:  "GET",
+		URL:     "https://example.com/test",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx2)
+	if ctx2.Headers.Get("X-Toggle") != "" {
+		t.Error("disabled script should not run after toggle")
+	}
+}
+
 func TestGojaURLPattern(t *testing.T) {
 	e := New()
 	err := e.LoadScript("test", `
