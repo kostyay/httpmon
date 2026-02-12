@@ -19,15 +19,12 @@ func (m *Manager) Scripts() []ScriptInfo {
 
 	infos := make([]ScriptInfo, 0, len(valid)+len(errored))
 	for _, sf := range valid {
-		info := ScriptInfo{
+		infos = append(infos, ScriptInfo{
 			Name:     sf.Meta.Name,
+			Matches:  sf.Meta.Match,
 			FilePath: sf.FilePath,
 			Enabled:  sf.Meta.IsEnabled(),
-		}
-		if sf.Meta != nil {
-			info.Matches = sf.Meta.Match
-		}
-		infos = append(infos, info)
+		})
 	}
 	for _, sf := range errored {
 		info := ScriptInfo{
