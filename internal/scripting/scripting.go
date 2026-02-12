@@ -29,7 +29,10 @@ type ResponseContext struct {
 type script struct {
 	name       string
 	source     string
-	urlPattern string // empty = match all
+	urlPattern string      // legacy: used by LoadScript()
+	meta       *ScriptMeta // used by LoadFromDir()
+	filePath   string      // set for dir-loaded scripts
+	fromDir    bool        // true if loaded via LoadFromDir/Reload
 }
 
 // Engine manages loaded JS scripts and runs them via goja.
@@ -71,7 +74,7 @@ func (e *Engine) RunOnRequest(ctx *RequestContext) {
 	e.mu.Unlock()
 
 	for _, s := range scripts {
-		if s.urlPattern != "" && !matchURL(s.urlPattern, ctx.URL) {
+		if !s.matchesURL(ctx.URL) {
 			continue
 		}
 		e.runOnRequest(s, ctx)
@@ -85,7 +88,7 @@ func (e *Engine) RunOnResponse(ctx *ResponseContext, hostPath string) {
 	e.mu.Unlock()
 
 	for _, s := range scripts {
-		if s.urlPattern != "" && !matchURL(s.urlPattern, hostPath) {
+		if !s.matchesURL(hostPath) {
 			continue
 		}
 		e.runOnResponse(s, ctx)
@@ -213,6 +216,93 @@ func (e *Engine) recordError(script, msg string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.errors = append(e.errors, fmt.Sprintf("[%s] %s", script, msg))
+}
+
+// matchesURL returns true when the script should run for the given URL.
+func (s *script) matchesURL(url string) bool {
+	if s.meta != nil {
+		return GlobMatchAny(s.meta.Match, url)
+	}
+	if s.urlPattern == "" {
+		return true
+	}
+	return matchURL(s.urlPattern, url)
+}
+
+// ScriptInfo describes a loaded script for TUI display.
+type ScriptInfo struct {
+	Name     string
+	Matches  []string
+	Enabled  bool
+	FilePath string
+	Error    string
+}
+
+// ScriptInfos returns info about all dir-loaded scripts (including errors).
+func (e *Engine) ScriptInfos() []ScriptInfo {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	var infos []ScriptInfo
+	for _, s := range e.scripts {
+		if !s.fromDir {
+			continue
+		}
+		info := ScriptInfo{
+			Name:     s.name,
+			FilePath: s.filePath,
+			Enabled:  true,
+		}
+		if s.meta != nil {
+			info.Matches = s.meta.Match
+			info.Enabled = s.meta.IsEnabled()
+		}
+		infos = append(infos, info)
+	}
+	return infos
+}
+
+// LoadFromDir loads all scripts from dir via LoadDir.
+// Enabled scripts are added to the engine; disabled scripts are tracked for ScriptInfos.
+func (e *Engine) LoadFromDir(dir string) {
+	scripts, errs := LoadDir(dir)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, sf := range scripts {
+		s := script{
+			name:     sf.Meta.Name,
+			source:   sf.Source,
+			meta:     sf.Meta,
+			filePath: sf.FilePath,
+			fromDir:  true,
+		}
+		if sf.Meta.IsEnabled() {
+			e.scripts = append(e.scripts, s)
+		}
+	}
+
+	// Track errored scripts for ScriptInfos display.
+	for _, sf := range errs {
+		e.errors = append(e.errors, fmt.Sprintf("[%s] %s", sf.Meta.Name, sf.Error))
+	}
+}
+
+// Reload clears dir-loaded scripts and re-loads from dir.
+// Manually loaded scripts (via LoadScript) are kept intact.
+func (e *Engine) Reload(dir string) {
+	e.mu.Lock()
+	var kept []script
+	for _, s := range e.scripts {
+		if !s.fromDir {
+			kept = append(kept, s)
+		}
+	}
+	e.scripts = kept
+	e.mu.Unlock()
+
+	e.LoadFromDir(dir)
 }
 
 // matchURL checks if a URL matches a pattern (supports * wildcards).
