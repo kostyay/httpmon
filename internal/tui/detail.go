@@ -51,10 +51,33 @@ func (a *App) viewDetail() string {
 	if a.detailRaw {
 		mode = "raw"
 	}
-	bar := fmt.Sprintf("n/N prev/next  j/k scroll  1/2 tabs  p:%s  e:edit  Esc back  %s", mode, scrollPct)
+	imageHint := ""
+	if a.detailBodyIsImage() {
+		if a.detailImagePreview {
+			imageHint = "  i:text"
+		} else {
+			imageHint = "  i:image"
+		}
+	}
+	bar := fmt.Sprintf("n/N prev/next  j/k scroll  1/2 tabs  p:%s  e:edit%s  Esc back  %s", mode, imageHint, scrollPct)
 	b.WriteString(styleStatusBar.Width(a.width).Render(truncate(bar, a.width)))
 
 	return b.String()
+}
+
+// detailBodyIsImage returns true if the currently viewed tab's body is a renderable image.
+func (a *App) detailBodyIsImage() bool {
+	_, data, err := a.store.Get(a.selectedID)
+	if err != nil || data == nil {
+		return false
+	}
+	var ct string
+	if a.detailTab == 0 {
+		ct = data.RequestHeaders.Get("Content-Type")
+	} else {
+		ct = data.ResponseHeaders.Get("Content-Type")
+	}
+	return isRenderableImage(ct)
 }
 
 func renderTab(label string, active bool) string {
