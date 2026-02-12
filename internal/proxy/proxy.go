@@ -13,6 +13,7 @@ import (
 
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -36,6 +37,9 @@ type Proxy struct {
 
 	// HostFilter controls which hosts are intercepted vs tunneled.
 	HostFilter *hostfilter.HostFilter
+
+	// ScriptEngine is optional; enables request/response rewriting via JS scripts.
+	ScriptEngine *scripting.Engine
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -79,7 +83,7 @@ func (p *Proxy) Init(addr string) error {
 		return fmt.Errorf("proxy init: %w", err)
 	}
 
-	proxy.AddAddon(newInterceptor(p.store))
+	proxy.AddAddon(newInterceptor(p.store, p.ScriptEngine))
 	p.mp = proxy
 	p.addr = addr
 
