@@ -15,6 +15,7 @@ import (
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
 	"github.com/kostyay/httpmon/internal/proxy"
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/tui"
 )
@@ -46,6 +47,12 @@ func main() {
 	s := store.New(*bufSize)
 	p := proxy.New(s, *dataDir)
 
+	// Init scripting engine.
+	scriptsDir := filepath.Join(*dataDir, "scripts")
+	engine := scripting.New()
+	engine.LoadFromDir(scriptsDir)
+	p.ScriptEngine = engine
+
 	if *blockHosts != "" || *allowHosts != "" {
 		block := splitCSV(*blockHosts)
 		allow := splitCSV(*allowHosts)
@@ -74,7 +81,8 @@ func main() {
 	go func() { proxyErr <- p.Serve(ctx) }()
 
 	caTrusted := certutil.IsInstalled(p.CACertPath())
-	app := tui.NewApp(s, p, caTrusted)
+	mgr := scripting.NewManager(engine, scriptsDir)
+	app := tui.NewApp(s, p, caTrusted, mgr)
 	prog := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := prog.Run(); err != nil {
 		fatal("TUI error: %v", err)

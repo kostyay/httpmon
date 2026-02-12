@@ -160,7 +160,7 @@ func newMultiHostApp() *App {
 		m.data[meta.ID] = &store.FlowData{}
 	}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 	return app
@@ -495,7 +495,7 @@ func TestFocusHostEvicted(t *testing.T) {
 	m.data["a1"] = &store.FlowData{}
 	m.data["b1"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 

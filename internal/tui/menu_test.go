@@ -173,7 +173,7 @@ func TestMenuDetailImageItem(t *testing.T) {
 		ResponseHeaders: map[string][]string{"Content-Type": {"image/png"}},
 		ResponseBody:    []byte{0x89, 0x50, 0x4E, 0x47}, // PNG magic bytes
 	}
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg{})
 
