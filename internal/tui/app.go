@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -47,12 +48,46 @@ type App struct {
 	hostExpanded map[string]bool // expand state per host
 	treeRows     []treeRow       // flattened visible rows for cursor addressing
 
+	// action menu
+	showMenu   bool
+	menuItems  []menuItem
+	menuCursor int
+
+	// help overlay
+	showHelp bool
+
+	// diff view
+	showDiff    bool
+	diffMarkID  store.FlowID
+	diffContent string
+
+	// export modal
+	showExport   bool
+	exportInput  textinput.Model
+	exportSingle bool
+
+	// compose screen
+	showCompose    bool
+	composeMethod  string
+	composeURL     textinput.Model
+	composeHeaders textinput.Model
+	composeBody    textinput.Model
+	composeFocus   int // 0=URL, 1=headers, 2=body
+
+	// detail search
+	detailSearch    bool
+	searchInput     textinput.Model
+	searchQuery     string
+	searchMatchCount int
+	searchMatchIdx   int
+
 	// detail view state
-	detailTab          int // 0=request, 1=response
+	detailTab          int             // 0=request, 1=response
 	detailVP           viewport.Model
 	detailReady        bool
-	detailRaw          bool // false=pretty-print, true=raw
-	detailImagePreview bool // true=show image as terminal art
+	detailRaw          bool            // false=pretty-print, true=raw
+	detailImagePreview bool            // true=show image as terminal art
+	detailCollapsed    map[string]bool // collapsed sections: "general", "headers", "body"
 
 	width, height int
 	ready         bool
@@ -63,12 +98,18 @@ func NewApp(s FlowReader, p ProxyInfo, caTrusted bool) *App {
 	ti.Placeholder = "/ to filter..."
 	ti.CharLimit = 256
 
+	si := textinput.New()
+	si.Placeholder = "search..."
+	si.CharLimit = 256
+
 	return &App{
-		store:        s,
-		proxy:        p,
-		caTrusted:    caTrusted,
-		filterInput:  ti,
-		hostExpanded: make(map[string]bool),
+		store:           s,
+		proxy:           p,
+		caTrusted:       caTrusted,
+		filterInput:     ti,
+		searchInput:     si,
+		hostExpanded:    make(map[string]bool),
+		detailCollapsed: make(map[string]bool),
 	}
 }
 
@@ -102,6 +143,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// Help overlay intercepts all keys.
+		if a.showHelp {
+			switch msg.String() {
+			case "?", "esc":
+				a.showHelp = false
+			}
+			return a, nil
+		}
+		if msg.String() == "?" {
+			a.showHelp = true
+			return a, nil
+		}
+		if a.showMenu {
+			return a.updateMenu(msg)
+		}
+		if a.showDiff {
+			if msg.String() == "esc" || msg.String() == "q" {
+				a.showDiff = false
+			}
+			return a, nil
+		}
+		if a.showExport {
+			return a.updateExport(msg)
+		}
+		if a.showCompose {
+			return a.updateCompose(msg)
+		}
 		if a.showDetail {
 			return a.updateDetail(msg)
 		}
@@ -120,6 +188,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) View() string {
 	if !a.ready {
 		return "Loading..."
+	}
+	if a.showDiff {
+		return a.viewDiff()
+	}
+	if a.showHelp {
+		return a.viewHelp()
+	}
+	if a.showMenu {
+		return a.viewMenu()
+	}
+	if a.showExport {
+		return a.viewExport()
+	}
+	if a.showCompose {
+		return a.viewCompose()
 	}
 	if a.showDetail {
 		return a.viewDetail()
@@ -154,8 +237,8 @@ func (a *App) refreshFlows() {
 func (a *App) applyFilter() {
 	a.filterText = a.filterInput.Value()
 	// Explicit nil assignment avoids non-nil interface wrapping a nil pointer.
-	if qf := filter.CompileQuick(a.filterText); qf != nil {
-		a.storeFilter = qf
+	if af := filter.Compile(a.filterText); af != nil {
+		a.storeFilter = af
 	} else {
 		a.storeFilter = nil
 	}
@@ -190,6 +273,14 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		a.filterInput.Focus()
 		return a, a.filterInput.Cursor.BlinkCmd()
+	case "C":
+		a.initCompose()
+		return a, a.composeURL.Cursor.BlinkCmd()
+	case "d":
+		return a.handleDiffMark()
+	case " ":
+		a.initMenu()
+		return a, nil
 	}
 
 	// Common cursor navigation (all modes).
@@ -266,6 +357,8 @@ func (a *App) updateFlatList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.selectedIdx = 0
 		a.listOffset = 0
 		a.refreshFlows()
+	case "x":
+		return a, a.initExport(false)
 	case "enter":
 		if len(a.flows) > 0 && a.selectedIdx < len(a.flows) {
 			a.openFlowDetail(a.flows[a.selectedIdx].ID)
@@ -280,6 +373,8 @@ func (a *App) updateTreeList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.listMode = modeFlat
 		a.selectedIdx = 0
 		a.listOffset = 0
+	case "x":
+		return a, a.initExport(false)
 	case "right", "l":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
@@ -331,6 +426,8 @@ func (a *App) updateFocusList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.listMode = modeFlat
 		a.selectedIdx = 0
 		a.listOffset = 0
+	case "x":
+		return a, a.initExport(false)
 	case "enter":
 		if a.selectedIdx < len(a.treeRows) {
 			a.openFlowDetail(a.treeRows[a.selectedIdx].Flow.ID)
@@ -350,6 +447,16 @@ func (a *App) jumpToParentHost(host string) {
 }
 
 func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Search input mode.
+	if a.detailSearch {
+		return a.updateDetailSearch(msg)
+	}
+
+	if msg.String() == " " {
+		a.initMenu()
+		return a, nil
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		a.showDetail = false
@@ -357,6 +464,14 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "ctrl+c":
 		return a, tea.Quit
+	case "/":
+		a.detailSearch = true
+		a.searchInput.SetValue("")
+		a.searchInput.Focus()
+		a.searchQuery = ""
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+		return a, a.searchInput.Cursor.BlinkCmd()
 	case "1", "left":
 		a.detailTab = 0
 		a.detailImagePreview = false
@@ -381,12 +496,93 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.updateDetailContent()
 	case "e":
 		return a.editBody()
+	case "g":
+		a.detailCollapsed["general"] = !a.detailCollapsed["general"]
+		a.updateDetailContent()
+	case "h":
+		a.detailCollapsed["headers"] = !a.detailCollapsed["headers"]
+		a.updateDetailContent()
+	case "b":
+		a.detailCollapsed["body"] = !a.detailCollapsed["body"]
+		a.updateDetailContent()
+	case "c":
+		return a.copyCurl()
+	case "x":
+		return a, a.initExport(true)
+	case "r":
+		return a, a.repeatRequest()
 	case "n":
 		a.nextFlow(1)
 	case "N":
 		a.nextFlow(-1)
 	}
 	return a, nil
+}
+
+func (a *App) copyCurl() (tea.Model, tea.Cmd) {
+	meta, data, err := a.store.Get(a.selectedID)
+	if err != nil || data == nil || meta == nil {
+		return a, nil
+	}
+
+	url := fmt.Sprintf("%s://%s%s", meta.Scheme, meta.Host, meta.Path)
+	curl := formatCurl(meta.Method, url, data.RequestHeaders, data.RequestBody)
+
+	// Write to clipboard via OSC 52.
+	return a, tea.Printf("%s%s", osc52Sequence(curl), "Copied to clipboard")
+}
+
+func (a *App) updateDetailSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		a.detailSearch = false
+		a.searchQuery = ""
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+		a.searchInput.Blur()
+		a.updateDetailContent()
+		return a, nil
+	case "enter":
+		// Commit search, switch to result navigation.
+		a.searchInput.Blur()
+		return a, nil
+	case "n":
+		if !a.searchInput.Focused() && a.searchMatchCount > 0 {
+			a.searchMatchIdx = (a.searchMatchIdx + 1) % a.searchMatchCount
+			return a, nil
+		}
+	case "N":
+		if !a.searchInput.Focused() && a.searchMatchCount > 0 {
+			a.searchMatchIdx = (a.searchMatchIdx - 1 + a.searchMatchCount) % a.searchMatchCount
+			return a, nil
+		}
+	}
+
+	// Pass keys to text input when focused.
+	if a.searchInput.Focused() {
+		var cmd tea.Cmd
+		a.searchInput, cmd = a.searchInput.Update(msg)
+		a.applySearch()
+		return a, cmd
+	}
+
+	return a, nil
+}
+
+func (a *App) applySearch() {
+	a.searchQuery = a.searchInput.Value()
+	if a.searchQuery == "" {
+		a.searchMatchCount = 0
+		a.searchMatchIdx = 0
+		return
+	}
+
+	content := a.detailVP.View()
+	query := strings.ToLower(a.searchQuery)
+	a.searchMatchCount = strings.Count(strings.ToLower(content), query)
+	if a.searchMatchIdx >= a.searchMatchCount {
+		a.searchMatchIdx = 0
+	}
 }
 
 func (a *App) nextFlow(delta int) {
@@ -475,7 +671,7 @@ func (a *App) updateDetailContent() {
 	}
 
 	darkBg := lipgloss.HasDarkBackground()
-	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw))
+	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw, a.detailCollapsed))
 }
 
 func (a *App) proxyAddr() string {
@@ -496,11 +692,11 @@ func (a *App) statusText() string {
 	var help string
 	switch a.listMode {
 	case modeTree:
-		help = "t:flat  f:focus  / filter"
+		help = "t:flat  f:focus  /:filter  Space:actions"
 	case modeFocus:
-		help = "t:flat  Esc:unfocus  / filter"
+		help = "t:flat  Esc:unfocus  /:filter  Space:actions"
 	default:
-		help = "t:tree  / filter"
+		help = "t:tree  /:filter  Space:actions"
 	}
 
 	gap := max(a.width-len(warning)-len(info)-len(help), 2)

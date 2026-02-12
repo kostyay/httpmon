@@ -40,6 +40,18 @@ var (
 
 	styleDetailHeader = lipgloss.NewStyle().Bold(true)
 	styleSection      = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+
+	styleMenuBorder = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorBlue).
+			Padding(0, 1)
+
+	styleMenuTitle = lipgloss.NewStyle().
+			Foreground(colorBlue).
+			Bold(true)
+
+	styleMenuSelected = lipgloss.NewStyle().
+				Reverse(true)
 )
 
 func statusStyle(code int) lipgloss.Style {
