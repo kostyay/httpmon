@@ -106,6 +106,121 @@ func TestGojaScriptError(t *testing.T) {
 	}
 }
 
+func TestEngine_LoadFromDir(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "test.js", `// ---
+// name: Add Header
+// match:
+//   - "*://example.com/*"
+// enabled: true
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-Script"] = "loaded";
+}
+`)
+	writeTestScript(t, dir, "disabled.js", `// ---
+// name: Disabled
+// match:
+//   - "*://*/*"
+// enabled: false
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-Disabled"] = "yes";
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	ctx := &RequestContext{
+		Method:  "GET",
+		URL:     "https://example.com/api",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx)
+
+	if ctx.Headers.Get("X-Script") != "loaded" {
+		t.Error("enabled script should run")
+	}
+	if ctx.Headers.Get("X-Disabled") != "" {
+		t.Error("disabled script should not run")
+	}
+}
+
+func TestEngine_GlobFiltering(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "api-only.js", `// ---
+// name: API Only
+// match:
+//   - "*://api.example.com/*"
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-API"] = "yes";
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	// Should match.
+	ctx1 := &RequestContext{
+		Method:  "GET",
+		URL:     "https://api.example.com/users",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx1)
+	if ctx1.Headers.Get("X-API") != "yes" {
+		t.Error("should match api.example.com")
+	}
+
+	// Should not match.
+	ctx2 := &RequestContext{
+		Method:  "GET",
+		URL:     "https://other.com/users",
+		Headers: http.Header{},
+	}
+	e.RunOnRequest(ctx2)
+	if ctx2.Headers.Get("X-API") != "" {
+		t.Error("should not match other.com")
+	}
+}
+
+func TestEngine_Reload(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "a.js", `// ---
+// name: Script A
+// match:
+//   - "*://*/*"
+// ---
+function onRequest(ctx) {
+    ctx.headers["X-A"] = "yes";
+}
+`)
+
+	e := New()
+	e.LoadFromDir(dir)
+
+	infos := e.ScriptInfos()
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 script info, got %d", len(infos))
+	}
+
+	// Add another script file.
+	writeTestScript(t, dir, "b.js", `// ---
+// name: Script B
+// match:
+//   - "*://*/*"
+// ---
+function onRequest(ctx) {}
+`)
+
+	e.Reload(dir)
+	infos = e.ScriptInfos()
+	if len(infos) != 2 {
+		t.Fatalf("expected 2 script infos after reload, got %d", len(infos))
+	}
+}
+
 func TestGojaURLPattern(t *testing.T) {
 	e := New()
 	err := e.LoadScript("test", `
