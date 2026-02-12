@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,15 +111,8 @@ func seedStore(n int) *store.RingBuffer {
 	return s
 }
 
-func fmtID(i int) string   { return "flow-" + itoa(i) }
-func fmtPath(i int) string { return "/v1/test/" + itoa(i) }
-
-func itoa(i int) string {
-	if i < 10 {
-		return string(rune('0' + i))
-	}
-	return itoa(i/10) + string(rune('0'+i%10))
-}
+func fmtID(i int) string   { return "flow-" + strconv.Itoa(i) }
+func fmtPath(i int) string { return "/v1/test/" + strconv.Itoa(i) }
 
 func newTestApp(n int) *App {
 	s := seedStore(n)
@@ -567,5 +562,439 @@ func TestScrollUpKeepsViewportStable(t *testing.T) {
 	selPath := app.flows[9].Path
 	if !strings.Contains(view, selPath) {
 		t.Errorf("selected row %q must be visible\nview:\n%s", selPath, view)
+	}
+}
+
+func TestDetailCollapseGeneral(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := app.View()
+	if !strings.Contains(view, "Method:") {
+		t.Fatal("General section should be visible by default")
+	}
+
+	// Collapse general
+	sendKey(app, "g")
+	view = app.View()
+	if strings.Contains(view, "Method:") {
+		t.Error("General section should be hidden after pressing g")
+	}
+	if !strings.Contains(view, "▸ General") {
+		t.Error("collapsed General should show ▸ icon")
+	}
+
+	// Expand again
+	sendKey(app, "g")
+	view = app.View()
+	if !strings.Contains(view, "Method:") {
+		t.Error("General section should be visible after second g")
+	}
+	if !strings.Contains(view, "▾ General") {
+		t.Error("expanded General should show ▾ icon")
+	}
+}
+
+func TestDetailCollapseHeaders(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := app.View()
+	if !strings.Contains(view, "Accept:") {
+		t.Fatal("Headers should be visible by default")
+	}
+
+	sendKey(app, "h")
+	view = app.View()
+	if strings.Contains(view, "Accept:") {
+		t.Error("Headers should be hidden after pressing h")
+	}
+
+	sendKey(app, "h")
+	view = app.View()
+	if !strings.Contains(view, "Accept:") {
+		t.Error("Headers should be visible after second h")
+	}
+}
+
+func TestDetailCollapseBody(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := app.View()
+	if !strings.Contains(view, `"q"`) {
+		t.Fatal("Body content should be visible by default")
+	}
+
+	sendKey(app, "b")
+	view = app.View()
+	if strings.Contains(view, `"q"`) {
+		t.Error("Body content should be hidden after pressing b")
+	}
+
+	sendKey(app, "b")
+	view = app.View()
+	if !strings.Contains(view, `"q"`) {
+		t.Error("Body content should be visible after second b")
+	}
+}
+
+// --- Help overlay tests ---
+
+func TestHelpToggle(t *testing.T) {
+	app := newMockApp(3)
+
+	// Initially help is hidden.
+	if app.showHelp {
+		t.Fatal("showHelp should be false initially")
+	}
+
+	// Press ? to show help.
+	sendKey(app, "?")
+	if !app.showHelp {
+		t.Error("? should toggle showHelp to true")
+	}
+
+	// Press ? again to dismiss.
+	sendKey(app, "?")
+	if app.showHelp {
+		t.Error("second ? should toggle showHelp back to false")
+	}
+}
+
+func TestHelpEscDismisses(t *testing.T) {
+	app := newMockApp(3)
+	sendKey(app, "?")
+	if !app.showHelp {
+		t.Fatal("showHelp should be true after ?")
+	}
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.showHelp {
+		t.Error("Esc should dismiss help overlay")
+	}
+}
+
+func TestHelpContent(t *testing.T) {
+	app := newMockApp(3)
+	sendKey(app, "?")
+
+	view := app.View()
+	// Should contain key groups.
+	for _, expect := range []string{"Navigation", "Filter", "Detail View", "?", "Esc"} {
+		if !strings.Contains(view, expect) {
+			t.Errorf("help overlay should contain %q, got:\n%s", expect, view)
+		}
+	}
+}
+
+func TestHelpDoesNotDisruptState(t *testing.T) {
+	app := newMockApp(5)
+
+	// Select third flow.
+	sendKey(app, "j")
+	sendKey(app, "j")
+	savedIdx := app.selectedIdx
+
+	// Open and close help.
+	sendKey(app, "?")
+	sendKey(app, "?")
+
+	if app.selectedIdx != savedIdx {
+		t.Errorf("selectedIdx changed: got %d, want %d", app.selectedIdx, savedIdx)
+	}
+	if app.showDetail {
+		t.Error("help toggle should not enter detail view")
+	}
+}
+
+func TestHelpInDetailView(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	if !app.showDetail {
+		t.Fatal("should be in detail view")
+	}
+
+	sendKey(app, "?")
+	if !app.showHelp {
+		t.Error("? in detail should open help")
+	}
+
+	// Esc should dismiss help but not exit detail.
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.showHelp {
+		t.Error("Esc should dismiss help")
+	}
+	if !app.showDetail {
+		t.Error("Esc from help in detail should stay in detail view")
+	}
+}
+
+// --- Detail search tests ---
+
+func TestSearchFindsText(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+
+	// Press / to open search
+	sendKey(app, "/")
+	if !app.detailSearch {
+		t.Fatal("/ in detail should activate search mode")
+	}
+
+	// Type search term
+	for _, ch := range "test" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	if app.searchMatchCount == 0 {
+		t.Error("search for 'test' should find matches in body/headers")
+	}
+}
+
+func TestSearchNoMatch(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sendKey(app, "/")
+	for _, ch := range "zzznomatch" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	if app.searchMatchCount != 0 {
+		t.Errorf("searchMatchCount = %d, want 0 for no matches", app.searchMatchCount)
+	}
+}
+
+func TestSearchNavigation(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sendKey(app, "/")
+	// The body has `{"q":"test"}` — search for common char.
+	for _, ch := range ":" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	if app.searchMatchCount < 2 {
+		t.Skipf("need >= 2 matches for navigation test, got %d", app.searchMatchCount)
+	}
+
+	// Commit search (Enter blurs input, n/N now navigate).
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	initial := app.searchMatchIdx
+	sendKey(app, "n")
+	if app.searchMatchIdx == initial {
+		t.Error("n should advance to next match")
+	}
+
+	sendKey(app, "N")
+	if app.searchMatchIdx != initial {
+		t.Error("N should go back to previous match")
+	}
+}
+
+func TestSearchEscClears(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sendKey(app, "/")
+	for _, ch := range "test" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.detailSearch {
+		t.Error("Esc should exit search mode")
+	}
+	if app.searchQuery != "" {
+		t.Error("Esc should clear search query")
+	}
+}
+
+func TestSearchEscInDetailStaysInDetail(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sendKey(app, "/")
+	for _, ch := range "test" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+
+	if !app.showDetail {
+		t.Error("Esc from search should stay in detail view")
+	}
+}
+
+func TestSearchStatusBar(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sendKey(app, "/")
+	for _, ch := range "test" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "matches") {
+		t.Error("status bar should show match count during search")
+	}
+}
+
+// --- HAR export modal tests ---
+
+func TestExportModalOpens(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "x")
+	if !app.showExport {
+		t.Error("x should open export modal")
+	}
+	if app.exportSingle {
+		t.Error("x from list should set exportSingle=false")
+	}
+	val := app.exportInput.Value()
+	if !strings.HasPrefix(val, "httpmon-") || !strings.HasSuffix(val, ".har") {
+		t.Errorf("default filename = %q, want httpmon-*.har", val)
+	}
+}
+
+func TestExportModalEscCancels(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "x")
+	if !app.showExport {
+		t.Fatal("modal should be open")
+	}
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.showExport {
+		t.Error("Esc should dismiss export modal")
+	}
+}
+
+func TestExportModalEnterExports(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "x")
+	// Set a temp filename.
+	tmp := t.TempDir() + "/test-export.har"
+	app.exportInput.SetValue(tmp)
+
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.showExport {
+		t.Error("Enter should dismiss export modal")
+	}
+	if cmd == nil {
+		t.Error("Enter should return a feedback cmd")
+	}
+	// Verify file was written.
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("exported file should exist: %v", err)
+	}
+}
+
+func TestExportModalSingleFlow(t *testing.T) {
+	app := newMockApp(3)
+
+	// Enter detail, press x.
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	sendKey(app, "x")
+	if !app.showExport {
+		t.Fatal("x in detail should open export modal")
+	}
+	if !app.exportSingle {
+		t.Error("x from detail should set exportSingle=true")
+	}
+}
+
+func TestExportModalViewContent(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "x")
+	view := app.View()
+	if !strings.Contains(view, "Export HAR") {
+		t.Error("export view should contain header")
+	}
+	if !strings.Contains(view, "Enter:export") {
+		t.Error("export view should show Enter hint")
+	}
+	if !strings.Contains(view, "Esc:cancel") {
+		t.Error("export view should show Esc hint")
+	}
+}
+
+func TestExportHARTreeMode(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "t")
+	if app.listMode != modeTree {
+		t.Fatal("should be in tree mode")
+	}
+
+	sendKey(app, "x")
+	if !app.showExport {
+		t.Error("x in tree mode should open export modal")
+	}
+}
+
+func TestExportHARFocusMode(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, "t")
+	sendKey(app, "f")
+	if app.listMode != modeFocus {
+		t.Fatal("should be in focus mode")
+	}
+
+	sendKey(app, "x")
+	if !app.showExport {
+		t.Error("x in focus mode should open export modal")
+	}
+}
+
+// --- Diff tests ---
+
+func TestDiffMarkAndCompare(t *testing.T) {
+	app := newMockApp(5)
+
+	// Mark first flow with 'd'.
+	sendKey(app, "d")
+	if app.diffMarkID == "" {
+		t.Fatal("d should mark first flow for diff")
+	}
+	firstMark := app.diffMarkID
+
+	// Move to second flow.
+	sendKey(app, "j")
+	// Press d again to open diff.
+	sendKey(app, "d")
+
+	if !app.showDiff {
+		t.Error("second d should open diff view")
+	}
+	if app.diffMarkID != "" {
+		t.Error("diff mark should be cleared after opening diff")
+	}
+	_ = firstMark
+}
+
+func TestDiffEscReturns(t *testing.T) {
+	app := newMockApp(5)
+
+	// Mark and diff.
+	sendKey(app, "d")
+	sendKey(app, "j")
+	sendKey(app, "d")
+
+	if !app.showDiff {
+		t.Fatal("should be in diff view")
+	}
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if app.showDiff {
+		t.Error("Esc should exit diff view")
 	}
 }

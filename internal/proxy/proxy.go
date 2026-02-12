@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -11,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/kostyay/httpmon/internal/certutil"
+	"github.com/kostyay/httpmon/internal/hostfilter"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -31,6 +33,9 @@ type Proxy struct {
 
 	// SslInsecure skips TLS verification for upstream servers.
 	SslInsecure bool
+
+	// HostFilter controls which hosts are intercepted vs tunneled.
+	HostFilter *hostfilter.HostFilter
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -77,6 +82,13 @@ func (p *Proxy) Init(addr string) error {
 	proxy.AddAddon(newInterceptor(p.store))
 	p.mp = proxy
 	p.addr = addr
+
+	if p.HostFilter != nil {
+		proxy.SetShouldInterceptRule(func(req *http.Request) bool {
+			return p.HostFilter.ShouldIntercept(req.Host)
+		})
+	}
+
 	return nil
 }
 
