@@ -77,19 +77,17 @@ func wildcardMatch(pattern, s string) bool {
 // splitScheme splits "scheme://rest" into (scheme, rest).
 // If no "://" is found, returns ("", s).
 func splitScheme(s string) (scheme, rest string) {
-	idx := strings.Index(s, "://")
-	if idx < 0 {
-		return "", s
+	if before, after, ok := strings.Cut(s, "://"); ok {
+		return before, after
 	}
-	return s[:idx], s[idx+3:]
+	return "", s
 }
 
 // splitHostPath splits "host/path" into (host, path).
 // If no "/" is found, path is empty.
 func splitHostPath(s string) (host, pathPart string) {
-	idx := strings.Index(s, "/")
-	if idx < 0 {
-		return s, ""
+	if before, after, ok := strings.Cut(s, "/"); ok {
+		return before, "/" + after
 	}
-	return s[:idx], s[idx:]
+	return s, ""
 }

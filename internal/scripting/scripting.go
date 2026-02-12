@@ -118,13 +118,7 @@ func (e *Engine) runOnRequest(s script, ctx *RequestContext) {
 	_ = jsCtx.Set("method", ctx.Method)
 	_ = jsCtx.Set("url", ctx.URL)
 	_ = jsCtx.Set("blocked", false)
-
-	// Convert headers to plain object.
-	hdrs := vm.NewObject()
-	for k := range ctx.Headers {
-		_ = hdrs.Set(k, ctx.Headers.Get(k))
-	}
-	_ = jsCtx.Set("headers", hdrs)
+	_ = jsCtx.Set("headers", headersToJS(vm, ctx.Headers))
 
 	if len(ctx.Body) > 0 {
 		_ = jsCtx.Set("body", string(ctx.Body))
@@ -147,17 +141,7 @@ func (e *Engine) runOnRequest(s script, ctx *RequestContext) {
 		ctx.URL = v.String()
 	}
 
-	// Read back headers.
-	hObj := jsCtx.Get("headers")
-	if hObj != nil && !goja.IsUndefined(hObj) && !goja.IsNull(hObj) {
-		obj := hObj.ToObject(vm)
-		for _, key := range obj.Keys() {
-			val := obj.Get(key)
-			if val != nil {
-				ctx.Headers.Set(key, val.String())
-			}
-		}
-	}
+	readBackHeaders(vm, jsCtx, ctx.Headers)
 }
 
 func (e *Engine) runOnResponse(s script, ctx *ResponseContext) {
@@ -182,12 +166,7 @@ func (e *Engine) runOnResponse(s script, ctx *ResponseContext) {
 	jsCtx := vm.NewObject()
 	_ = jsCtx.Set("status", ctx.Status)
 	_ = jsCtx.Set("body", string(ctx.Body))
-
-	hdrs := vm.NewObject()
-	for k := range ctx.Headers {
-		_ = hdrs.Set(k, ctx.Headers.Get(k))
-	}
-	_ = jsCtx.Set("headers", hdrs)
+	_ = jsCtx.Set("headers", headersToJS(vm, ctx.Headers))
 
 	_, err = fn(goja.Undefined(), jsCtx)
 	if err != nil {
@@ -195,19 +174,32 @@ func (e *Engine) runOnResponse(s script, ctx *ResponseContext) {
 		return
 	}
 
-	// Read back.
 	if v := jsCtx.Get("status"); v != nil {
 		ctx.Status = int(v.ToInteger())
 	}
 
+	readBackHeaders(vm, jsCtx, ctx.Headers)
+}
+
+// headersToJS converts http.Header to a goja object (single-value per key).
+func headersToJS(vm *goja.Runtime, h http.Header) *goja.Object {
+	obj := vm.NewObject()
+	for k := range h {
+		_ = obj.Set(k, h.Get(k))
+	}
+	return obj
+}
+
+// readBackHeaders copies JS header object modifications back into http.Header.
+func readBackHeaders(vm *goja.Runtime, jsCtx *goja.Object, h http.Header) {
 	hObj := jsCtx.Get("headers")
-	if hObj != nil && !goja.IsUndefined(hObj) && !goja.IsNull(hObj) {
-		obj := hObj.ToObject(vm)
-		for _, key := range obj.Keys() {
-			val := obj.Get(key)
-			if val != nil {
-				ctx.Headers.Set(key, val.String())
-			}
+	if hObj == nil || goja.IsUndefined(hObj) || goja.IsNull(hObj) {
+		return
+	}
+	obj := hObj.ToObject(vm)
+	for _, key := range obj.Keys() {
+		if val := obj.Get(key); val != nil {
+			h.Set(key, val.String())
 		}
 	}
 }
@@ -219,7 +211,7 @@ func (e *Engine) recordError(script, msg string) {
 }
 
 // matchesURL returns true when the script should run for the given URL.
-func (s *script) matchesURL(url string) bool {
+func (s script) matchesURL(url string) bool {
 	if s.meta != nil {
 		return GlobMatchAny(s.meta.Match, url)
 	}
