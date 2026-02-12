@@ -51,7 +51,7 @@ func (a *App) viewDetail() string {
 	if a.detailRaw {
 		mode = "raw"
 	}
-	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  p:%s  Esc back  %s", mode, scrollPct)
+	bar := fmt.Sprintf("n/N prev/next  j/k scroll  1/2 tabs  p:%s  e:edit  Esc back  %s", mode, scrollPct)
 	b.WriteString(styleStatusBar.Width(a.width).Render(truncate(bar, a.width)))
 
 	return b.String()
