@@ -451,6 +451,41 @@ func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 	}
 }
 
+func TestPToggleRaw(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if app.detailRaw {
+		t.Error("detailRaw should default to false")
+	}
+
+	sendKey(app, "p")
+	if !app.detailRaw {
+		t.Error("p should toggle detailRaw to true")
+	}
+
+	sendKey(app, "p")
+	if app.detailRaw {
+		t.Error("second p should toggle detailRaw back to false")
+	}
+}
+
+func TestDetailStatusBarShowsPrettyRaw(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := app.View()
+	if !strings.Contains(view, "p:pretty") {
+		t.Error("status bar should show p:pretty when detailRaw=false")
+	}
+
+	sendKey(app, "p")
+	view = app.View()
+	if !strings.Contains(view, "p:raw") {
+		t.Error("status bar should show p:raw when detailRaw=true")
+	}
+}
+
 func TestStatusBarShowsCAWarning(t *testing.T) {
 	m := seedMock(1)
 	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, false)

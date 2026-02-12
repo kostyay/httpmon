@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kostyay/httpmon/internal/filter"
 	"github.com/kostyay/httpmon/internal/store"
@@ -33,9 +34,10 @@ type App struct {
 	storeFilter store.Filter // nil = match all
 
 	// detail view state
-	detailTab    int // 0=request, 1=response
-	detailVP     viewport.Model
+	detailTab   int // 0=request, 1=response
+	detailVP    viewport.Model
 	detailReady bool
+	detailRaw   bool // false=pretty-print, true=raw
 
 	width, height int
 	ready         bool
@@ -115,13 +117,12 @@ func (a *App) refreshFlows() {
 }
 
 func (a *App) applyFilter() {
-	text := a.filterInput.Value()
-	a.filterText = text
-	qf := filter.CompileQuick(text)
-	if qf == nil {
-		a.storeFilter = nil
-	} else {
+	a.filterText = a.filterInput.Value()
+	// Explicit nil assignment avoids non-nil interface wrapping a nil pointer.
+	if qf := filter.CompileQuick(a.filterText); qf != nil {
 		a.storeFilter = qf
+	} else {
+		a.storeFilter = nil
 	}
 	a.selectedIdx = 0
 }
@@ -178,14 +179,11 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
+	case "esc", "q":
 		a.showDetail = false
 		return a, nil
 	case "ctrl+c":
 		return a, tea.Quit
-	case "q":
-		a.showDetail = false
-		return a, nil
 	case "1", "left":
 		a.detailTab = 0
 		a.updateDetailContent()
@@ -200,6 +198,9 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.detailVP.HalfPageDown()
 	case "u":
 		a.detailVP.HalfPageUp()
+	case "p":
+		a.detailRaw = !a.detailRaw
+		a.updateDetailContent()
 	case "n":
 		a.nextFlow(1)
 	case "N":
@@ -239,7 +240,8 @@ func (a *App) updateDetailContent() {
 		a.detailVP.SetContent("Flow no longer available. Press Esc to return.")
 		return
 	}
-	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width))
+	darkBg := lipgloss.HasDarkBackground()
+	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw))
 }
 
 func (a *App) proxyAddr() string {
