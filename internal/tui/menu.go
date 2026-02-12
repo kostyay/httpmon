@@ -51,6 +51,9 @@ func (a *App) listMenuItems() []menuItem {
 	if a.listMode == modeTree {
 		items = append(items, menuItem{label: "Focus Host", key: "f"})
 	}
+	if a.scripts != nil {
+		items = append(items, menuItem{label: "Scripts", key: "S"})
+	}
 	return items
 }
 
@@ -64,6 +67,9 @@ func (a *App) detailMenuItems() []menuItem {
 	}
 	if a.detailBodyIsImage() {
 		items = append(items, menuItem{label: "Toggle Image Preview", key: "i"})
+	}
+	if a.scripts != nil {
+		items = append(items, menuItem{label: "Scripts", key: "S"})
 	}
 	return items
 }

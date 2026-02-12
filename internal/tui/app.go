@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kostyay/httpmon/internal/filter"
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -74,6 +75,13 @@ type App struct {
 	composeBody    textinput.Model
 	composeFocus   int // 0=URL, 1=headers, 2=body
 
+	// scripts modal
+	scripts              ScriptManager
+	showScripts          bool
+	scriptsCursor        int
+	scriptsList          []scripting.ScriptInfo
+	scriptsConfirmDelete bool
+
 	// detail search
 	detailSearch    bool
 	searchInput     textinput.Model
@@ -93,7 +101,7 @@ type App struct {
 	ready         bool
 }
 
-func NewApp(s FlowReader, p ProxyInfo, caTrusted bool) *App {
+func NewApp(s FlowReader, p ProxyInfo, caTrusted bool, sm ScriptManager) *App {
 	ti := textinput.New()
 	ti.Placeholder = "/ to filter..."
 	ti.CharLimit = 256
@@ -106,6 +114,7 @@ func NewApp(s FlowReader, p ProxyInfo, caTrusted bool) *App {
 		store:           s,
 		proxy:           p,
 		caTrusted:       caTrusted,
+		scripts:         sm,
 		filterInput:     ti,
 		searchInput:     si,
 		hostExpanded:    make(map[string]bool),
@@ -142,6 +151,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		return a, nil
 
+	case scriptEditorFinishedMsg:
+		if a.scripts != nil {
+			a.scripts.Reload()
+			a.scriptsList = a.scripts.Scripts()
+		}
+		return a, nil
+
 	case tea.KeyMsg:
 		// Help overlay intercepts all keys.
 		if a.showHelp {
@@ -154,6 +170,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "?" {
 			a.showHelp = true
 			return a, nil
+		}
+		if a.showScripts {
+			return a.updateScripts(msg)
 		}
 		if a.showMenu {
 			return a.updateMenu(msg)
@@ -194,6 +213,9 @@ func (a *App) View() string {
 	}
 	if a.showHelp {
 		return a.viewHelp()
+	}
+	if a.showScripts {
+		return a.viewScripts()
 	}
 	if a.showMenu {
 		return a.viewMenu()
@@ -280,6 +302,11 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a.handleDiffMark()
 	case " ":
 		a.initMenu()
+		return a, nil
+	case "S":
+		if a.scripts != nil {
+			a.initScripts()
+		}
 		return a, nil
 	}
 
@@ -454,6 +481,12 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if msg.String() == " " {
 		a.initMenu()
+		return a, nil
+	}
+	if msg.String() == "S" {
+		if a.scripts != nil {
+			a.initScripts()
+		}
 		return a, nil
 	}
 
