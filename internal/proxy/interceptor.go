@@ -2,21 +2,25 @@ package proxy
 
 import (
 	"log"
+	"net/http"
+	"net/url"
 	"time"
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
 // interceptor is a go-mitmproxy addon that captures flows into a RingBuffer.
 type interceptor struct {
 	mp.BaseAddon
-	store *store.RingBuffer
+	store  *store.RingBuffer
+	engine *scripting.Engine // may be nil
 }
 
-func newInterceptor(s *store.RingBuffer) *interceptor {
-	return &interceptor{store: s}
+func newInterceptor(s *store.RingBuffer, engine *scripting.Engine) *interceptor {
+	return &interceptor{store: s, engine: engine}
 }
 
 func (i *interceptor) Requestheaders(f *mp.Flow) {
@@ -60,6 +64,38 @@ func (i *interceptor) Request(f *mp.Flow) {
 		RequestHeaders: f.Request.Header.Clone(),
 		RequestBody:    body,
 	})
+
+	// Run scripts on request (before forwarding to upstream).
+	if i.engine != nil {
+		reqURL := f.Request.URL.String()
+		ctx := &scripting.RequestContext{
+			Method:  f.Request.Method,
+			URL:     reqURL,
+			Headers: f.Request.Header.Clone(),
+			Body:    f.Request.Body,
+		}
+		i.engine.RunOnRequest(ctx)
+
+		if ctx.Blocked {
+			// Block the request: return 403 to client, skip upstream.
+			f.Response = &mp.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     http.Header{"Content-Type": {"text/plain"}},
+				Body:       []byte("Blocked by httpmon script"),
+			}
+			return
+		}
+
+		// Apply mutations back to the flow.
+		f.Request.Method = ctx.Method
+		if ctx.URL != reqURL {
+			if u, err := url.Parse(ctx.URL); err == nil {
+				f.Request.URL = u
+			}
+		}
+		f.Request.Header = ctx.Headers
+		f.Request.Body = ctx.Body
+	}
 }
 
 func (i *interceptor) Responseheaders(f *mp.Flow) {
@@ -100,6 +136,23 @@ func (i *interceptor) Response(f *mp.Flow) {
 	}
 	if len(respBody) > maxBodySize {
 		respBody = respBody[:maxBodySize]
+	}
+
+	// Run scripts on response.
+	if i.engine != nil {
+		reqURL := f.Request.URL.String()
+		ctx := &scripting.ResponseContext{
+			Status:  f.Response.StatusCode,
+			Headers: f.Response.Header.Clone(),
+			Body:    respBody,
+		}
+		i.engine.RunOnResponse(ctx, reqURL)
+
+		// Apply mutations back.
+		f.Response.StatusCode = ctx.Status
+		f.Response.Header = ctx.Headers
+		respBody = ctx.Body
+		f.Response.Body = ctx.Body
 	}
 
 	// Merge response data with existing request data
