@@ -36,6 +36,7 @@ type App struct {
 	// flow list state
 	flows       []store.FlowMeta
 	totalFlows  int
+	listOffset  int // first visible row in list viewport
 	filterInput textinput.Model
 	filterText  string
 	storeFilter store.Filter // nil = match all
@@ -47,10 +48,11 @@ type App struct {
 	treeRows     []treeRow       // flattened visible rows for cursor addressing
 
 	// detail view state
-	detailTab   int // 0=request, 1=response
-	detailVP    viewport.Model
-	detailReady bool
-	detailRaw   bool // false=pretty-print, true=raw
+	detailTab          int // 0=request, 1=response
+	detailVP           viewport.Model
+	detailReady        bool
+	detailRaw          bool // false=pretty-print, true=raw
+	detailImagePreview bool // true=show image as terminal art
 
 	width, height int
 	ready         bool
@@ -158,6 +160,7 @@ func (a *App) applyFilter() {
 		a.storeFilter = nil
 	}
 	a.selectedIdx = 0
+	a.listOffset = 0
 }
 
 func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -237,6 +240,7 @@ func (a *App) handleListNav(msg tea.KeyMsg) bool {
 		a.selectedIdx = max(a.selectedIdx-a.pageSize(), 0)
 	case "g", "home":
 		a.selectedIdx = 0
+		a.listOffset = 0
 	case "G", "end":
 		if n > 0 {
 			a.selectedIdx = n - 1
@@ -260,6 +264,7 @@ func (a *App) updateFlatList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		a.listMode = modeTree
 		a.selectedIdx = 0
+		a.listOffset = 0
 		a.refreshFlows()
 	case "enter":
 		if len(a.flows) > 0 && a.selectedIdx < len(a.flows) {
@@ -274,6 +279,7 @@ func (a *App) updateTreeList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		a.listMode = modeFlat
 		a.selectedIdx = 0
+		a.listOffset = 0
 	case "right", "l":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
@@ -319,10 +325,12 @@ func (a *App) updateFocusList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		a.listMode = modeTree
 		a.selectedIdx = 0
+		a.listOffset = 0
 		a.refreshFlows()
 	case "t":
 		a.listMode = modeFlat
 		a.selectedIdx = 0
+		a.listOffset = 0
 	case "enter":
 		if a.selectedIdx < len(a.treeRows) {
 			a.openFlowDetail(a.treeRows[a.selectedIdx].Flow.ID)
@@ -345,14 +353,20 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		a.showDetail = false
+		a.detailImagePreview = false
 		return a, nil
 	case "ctrl+c":
 		return a, tea.Quit
 	case "1", "left":
 		a.detailTab = 0
+		a.detailImagePreview = false
 		a.updateDetailContent()
 	case "2", "right":
 		a.detailTab = 1
+		a.detailImagePreview = false
+		a.updateDetailContent()
+	case "i":
+		a.toggleImagePreview()
 		a.updateDetailContent()
 	case "j", "down":
 		a.detailVP.ScrollDown(1)
@@ -386,6 +400,7 @@ func (a *App) nextFlow(delta int) {
 			if next >= 0 && next < len(a.flows) {
 				a.selectedIdx = next
 				a.selectedID = a.flows[next].ID
+				a.detailImagePreview = false
 				a.updateDetailContent()
 			}
 			return
@@ -419,12 +434,46 @@ func (a *App) initDetailViewport() {
 	a.updateDetailContent()
 }
 
+func (a *App) toggleImagePreview() {
+	_, data, err := a.store.Get(a.selectedID)
+	if err != nil || data == nil {
+		return
+	}
+	var ct string
+	if a.detailTab == 0 {
+		ct = data.RequestHeaders.Get("Content-Type")
+	} else {
+		ct = data.ResponseHeaders.Get("Content-Type")
+	}
+	if isRenderableImage(ct) {
+		a.detailImagePreview = !a.detailImagePreview
+	}
+}
+
 func (a *App) updateDetailContent() {
 	meta, data, err := a.store.Get(a.selectedID)
 	if err != nil {
 		a.detailVP.SetContent("Flow no longer available. Press Esc to return.")
 		return
 	}
+
+	if a.detailImagePreview && data != nil {
+		var body []byte
+		if a.detailTab == 0 {
+			body = data.RequestBody
+		} else {
+			body = data.ResponseBody
+		}
+		vpH := a.height - 3 // header + tabs + status
+		out, renderErr := renderImage(body, a.width, vpH)
+		if renderErr == nil {
+			a.detailVP.SetContent(out)
+			return
+		}
+		// Fall through to normal rendering on error.
+		a.detailImagePreview = false
+	}
+
 	darkBg := lipgloss.HasDarkBackground()
 	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw))
 }

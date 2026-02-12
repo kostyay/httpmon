@@ -129,22 +129,37 @@ func (a *App) writeEmptyMessage(b *strings.Builder, msg string) {
 }
 
 // writeRows renders visible rows with selection highlight, pads remaining space,
-// and appends the status bar.
+// and appends the status bar. Adjusts listOffset only when cursor escapes the
+// visible window, keeping the viewport stable otherwise.
 func (a *App) writeRows(b *strings.Builder, count int, renderFn func(int) string) {
 	maxRows := max(a.height-5, 0)
-	for i := range count {
-		if i >= maxRows {
-			break
+
+	// Clamp listOffset: scroll down if cursor below viewport, up if above.
+	if maxRows > 0 {
+		if a.selectedIdx < a.listOffset {
+			a.listOffset = a.selectedIdx
 		}
+		if a.selectedIdx >= a.listOffset+maxRows {
+			a.listOffset = a.selectedIdx - maxRows + 1
+		}
+	}
+	// Ensure offset doesn't exceed valid range.
+	if a.listOffset > count-maxRows {
+		a.listOffset = max(count-maxRows, 0)
+	}
+
+	visible := 0
+	for i := a.listOffset; i < count && visible < maxRows; i++ {
 		line := renderFn(i)
 		if i == a.selectedIdx {
 			line = styleSelected.Width(a.width).Render(line)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
+		visible++
 	}
 
-	used := 4 + min(count, maxRows)
+	used := 4 + visible
 	for used < a.height-1 {
 		b.WriteString("\n")
 		used++

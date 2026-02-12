@@ -505,3 +505,67 @@ func TestStatusBarNoWarningWhenTrusted(t *testing.T) {
 		t.Error("status bar should NOT show CA NOT TRUSTED when caTrusted=true")
 	}
 }
+
+func TestFlatListScrollsWithCursor(t *testing.T) {
+	// Height=12 → maxRows = 12-5 = 7. With 20 flows, scrolling past row 6
+	// should shift the viewport so the selected row is visible.
+	m := seedMock(20)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
+	app.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	app.Update(tickMsg(time.Now()))
+
+	// Move cursor to row 10 (well past the 7-row viewport).
+	for range 10 {
+		sendKey(app, "j")
+	}
+	if app.selectedIdx != 10 {
+		t.Fatalf("selectedIdx = %d, want 10", app.selectedIdx)
+	}
+
+	view := app.View()
+	// The selected flow's path must appear in the rendered output.
+	// Flows are newest-first, so flow-19 is index 0, flow-9 is index 10.
+	selectedPath := app.flows[10].Path
+	if !strings.Contains(view, selectedPath) {
+		t.Errorf("view should contain selected flow path %q when cursor is at row 10\nview:\n%s", selectedPath, view)
+	}
+}
+
+func TestScrollUpKeepsViewportStable(t *testing.T) {
+	// Height=12 → maxRows=7. 20 flows.
+	// Scroll down to row 10 (offset=4, showing rows 4-10).
+	// Then scroll up one — cursor at 9. Viewport should NOT shift:
+	// bottom row should still be row 10 (not row 9).
+	m := seedMock(20)
+	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true)
+	app.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	app.Update(tickMsg(time.Now()))
+
+	// Move cursor to row 10, calling View() each step (like real Bubble Tea).
+	for range 10 {
+		sendKey(app, "j")
+		app.View()
+	}
+
+	// Before scrolling up: row 10 is selected, viewport shows rows 4-10.
+	// Row at bottom of viewport = row 10 → flow path for index 10.
+	bottomPath := app.flows[10].Path
+
+	// Scroll up one.
+	sendKey(app, "k")
+	if app.selectedIdx != 9 {
+		t.Fatalf("selectedIdx = %d, want 9", app.selectedIdx)
+	}
+
+	view := app.View()
+	// Row 10 should still be visible (viewport didn't retract).
+	if !strings.Contains(view, bottomPath) {
+		t.Errorf("after scrolling up, row 10 (%q) should still be visible (viewport stable)\nview:\n%s", bottomPath, view)
+	}
+
+	// Selected row must also be visible.
+	selPath := app.flows[9].Path
+	if !strings.Contains(view, selPath) {
+		t.Errorf("selected row %q must be visible\nview:\n%s", selPath, view)
+	}
+}
