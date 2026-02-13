@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kostyay/httpmon/internal/store"
@@ -965,11 +966,8 @@ func TestDiffMarkAndCompare(t *testing.T) {
 	if app.diffMarkID == "" {
 		t.Fatal("d should mark first flow for diff")
 	}
-	firstMark := app.diffMarkID
-
-	// Move to second flow.
+	// Move to second flow and press d again to open diff.
 	sendKey(app, "j")
-	// Press d again to open diff.
 	sendKey(app, "d")
 
 	if !app.showDiff {
@@ -978,7 +976,6 @@ func TestDiffMarkAndCompare(t *testing.T) {
 	if app.diffMarkID != "" {
 		t.Error("diff mark should be cleared after opening diff")
 	}
-	_ = firstMark
 }
 
 func TestDiffEscReturns(t *testing.T) {
@@ -996,5 +993,72 @@ func TestDiffEscReturns(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	if app.showDiff {
 		t.Error("Esc should exit diff view")
+	}
+}
+
+func TestUpdateDetailContentError(t *testing.T) {
+	app := newMockApp(3)
+	app.showDetail = true
+	app.selectedID = "nonexistent"
+	app.detailReady = true
+	app.detailVP = viewport.New(120, 37)
+	app.updateDetailContent()
+
+	content := app.detailVP.View()
+	if !strings.Contains(content, "no longer available") {
+		t.Errorf("expected 'no longer available', got: %s", content)
+	}
+}
+
+// selectMenuItem navigates to the menu item with the given label and selects it.
+// Fatals if the item is not found.
+func selectMenuItem(t *testing.T, app *App, label string) {
+	t.Helper()
+	idx := -1
+	for i, item := range app.menuItems {
+		if item.label == label {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("menu item %q not found", label)
+	}
+	for range idx {
+		app.updateMenu(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	}
+	app.updateMenu(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+func TestDispatchMenuFromList(t *testing.T) {
+	app := newMockApp(3)
+
+	sendKey(app, " ")
+	if !app.showMenu {
+		t.Fatal("Space should open menu")
+	}
+
+	selectMenuItem(t, app, "Export HAR")
+	if !app.showExport {
+		t.Error("selecting Export HAR should open export modal")
+	}
+	if app.showMenu {
+		t.Error("menu should be closed after dispatch")
+	}
+}
+
+func TestDispatchMenuFromDetail(t *testing.T) {
+	app := newMockApp(3)
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+
+	sendKey(app, " ")
+	if !app.showMenu {
+		t.Fatal("Space should open menu in detail")
+	}
+
+	wasRaw := app.detailRaw
+	selectMenuItem(t, app, "Toggle Pretty/Raw")
+	if app.detailRaw == wasRaw {
+		t.Error("selecting Toggle Pretty/Raw should flip detailRaw")
 	}
 }
