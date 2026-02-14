@@ -32,9 +32,9 @@ func (m *mockScriptManager) Reload() {
 
 func newAppWithScripts(n int, sm ScriptManager) *App {
 	m := seedMock(n)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, sm)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true, Scripts: sm})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	return app
 }
 

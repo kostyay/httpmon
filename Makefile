@@ -1,4 +1,4 @@
-.PHONY: all fmt lint test build clean security
+.PHONY: all fmt lint test e2e build clean security
 
 all: lint test build
 
@@ -10,6 +10,9 @@ lint:
 
 test:
 	go test -race -coverprofile=coverage.out ./...
+
+e2e:
+	go test -v -tags e2e -count=1 -timeout 120s ./internal/e2e/
 
 build:
 	go build -o httpmon ./cmd/httpmon

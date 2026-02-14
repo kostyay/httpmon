@@ -432,7 +432,7 @@ func TestAddrAndCACertPath(t *testing.T) {
 
 func TestRequestBodyTruncation(t *testing.T) {
 	s := store.New(100)
-	ic := newInterceptor(s, nil)
+	ic := newInterceptor(interceptorConfig{Store: s})
 
 	flowID := uuid.NewV4()
 	reqURL, _ := url.Parse("http://example.com/bigpost")
@@ -561,7 +561,7 @@ func TestScriptResponseMutation(t *testing.T) {
 
 func TestMarkFailed(t *testing.T) {
 	s := store.New(100)
-	ic := newInterceptor(s, nil)
+	ic := newInterceptor(interceptorConfig{Store: s})
 
 	flowID := uuid.NewV4()
 	reqURL, _ := url.Parse("http://example.com/fail-test")

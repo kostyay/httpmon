@@ -95,9 +95,9 @@ func TestEditKeyEmptyBody(t *testing.T) {
 		},
 	}
 
-	app := NewApp(m, nil, true, nil)
+	app := NewApp(AppConfig{Store: m, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	_, cmd := app.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
