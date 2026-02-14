@@ -17,8 +17,9 @@ Think Proxyman or Charles, but in your terminal.
 - **Diff view** — Mark two flows and compare request/response side-by-side
 - **Host filtering** — Block or allow hosts at the proxy layer with wildcard patterns
 - **Scripting** — JavaScript hooks to modify requests/responses on the fly
+- **Breakpoints** — Pause flows mid-flight, edit headers/body in a built-in editor, then resume
 - **Bandwidth throttling** — Simulate 3G/4G/WiFi network conditions
-- **Map Local** — Serve local files instead of upstream responses
+- **Map Local** — Serve local files instead of upstream responses via `ctx.respondWith({file})`
 - **Keyboard-driven** — Vim-style navigation throughout — no mouse required
 
 ## Quick Start
@@ -48,7 +49,6 @@ httpmon --allow "api.example.*"  # Only intercept matching hosts
 httpmon --throttle 3g            # Simulate 3G network (750 kbps)
 httpmon --throttle 4g            # Simulate 4G network (4 Mbps)
 httpmon --latency 100ms          # Add 100ms latency to responses
-httpmon --maplocal rules.json    # Serve local files for matching URLs
 httpmon --install-ca             # Install CA cert into system trust store (needs sudo)
 httpmon --version                # Print version
 ```
@@ -127,6 +127,9 @@ function onResponse(ctx) {
 | `ctx.headers` | object | Request headers (read/write) |
 | `ctx.body` | string | Request body (read) |
 | `ctx.blocked` | bool | Set to `true` to block the request |
+| `ctx.respondWith(opts)` | function | Send a synthetic response (see below) |
+| `ctx.readFile(path)` | function | Read a local file relative to script dir |
+| `ctx.breakpoint()` | function | Pause for interactive editing |
 
 **`onResponse(ctx)`** — runs before the response reaches the client.
 
@@ -135,6 +138,37 @@ function onResponse(ctx) {
 | `ctx.status` | int | Status code (read/write) |
 | `ctx.headers` | object | Response headers (read/write) |
 | `ctx.body` | string | Response body (read) |
+| `ctx.respondWith(opts)` | function | Replace the response |
+| `ctx.readFile(path)` | function | Read a local file relative to script dir |
+| `ctx.breakpoint()` | function | Pause for interactive editing |
+
+### Script actions
+
+**`ctx.respondWith(opts)`** — send a synthetic response. In `onRequest`, this short-circuits the upstream request. In `onResponse`, it replaces the response.
+
+```javascript
+// Return a JSON body
+ctx.respondWith({status: 200, body: '{"ok": true}', headers: {"Content-Type": "application/json"}});
+
+// Serve a local file (content-type inferred from extension)
+ctx.respondWith({file: "./fixtures/users.json"});
+```
+
+**`ctx.readFile(path)`** — read a local file as a string. Returns `null` if the file is missing. Paths resolve relative to the script file's directory.
+
+```javascript
+let data = ctx.readFile("./fixtures/users.json");
+```
+
+**`ctx.breakpoint()`** — pause the flow for interactive editing. The TUI shows a built-in editor with headers and body panes. After resume, `ctx.headers` and `ctx.body` reflect the user's edits.
+
+```javascript
+function onRequest(ctx) {
+  if (ctx.url.includes("/api/sensitive")) {
+    ctx.breakpoint();
+  }
+}
+```
 
 ### Managing scripts
 
@@ -142,9 +176,11 @@ Press `S` in the TUI to open the scripts manager. From there:
 
 - **Space** — Toggle a script on/off
 - **n** — Create a new script from template
+- **m** — Quick-add a map-local script (URL pattern + file path)
+- **e** — Edit a script in your `$EDITOR`
 - **d** — Delete a script (with confirmation)
 
-Scripts are reloaded each time the manager opens.
+Scripts are categorized automatically: `[Breakpoint]`, `[Map Local]`, or `[Script]` badges appear in the list based on which APIs the script uses.
 
 ## Throttle
 
@@ -171,43 +207,46 @@ Press `T` to open the throttle modal. Select a preset with `j`/`k` and press `En
 
 ## Map Local
 
-Serve local files instead of fetching from upstream. Matched requests return the local file's content with the appropriate content type.
+Serve local files instead of fetching from upstream using `ctx.respondWith({file})` in a script.
 
-### Rules JSON format
-
-```json
-[
-  {
-    "pattern": "api.example.com/config",
-    "local_path": "/path/to/config.json",
-    "status_code": 200
-  },
-  {
-    "pattern": "*.example.com/styles/*",
-    "local_path": "/path/to/override.css"
-  }
-]
+```javascript
+// ---
+// name: Mock Users API
+// match:
+//   - "*://api.example.com/users*"
+// ---
+function onRequest(ctx) {
+  ctx.respondWith({file: "./fixtures/users.json"});
+}
 ```
 
-`pattern` supports `*` wildcards. `status_code` defaults to 200 if omitted.
+Use `m` in the scripts manager (`S`) to quickly create a map-local script from a URL pattern and file path.
 
-### CLI
+## Breakpoints
 
-```bash
-httpmon --maplocal rules.json
+Pause HTTP flows mid-flight, inspect and edit headers/body in a built-in editor, then resume.
+
+Add `ctx.breakpoint()` to any script:
+
+```javascript
+// ---
+// name: Debug API
+// match:
+//   - "*://api.example.com/*"
+// ---
+function onRequest(ctx) {
+  ctx.breakpoint();
+}
 ```
 
-### TUI
+Press `B` to open the breakpoint queue. Select a paused flow to edit:
 
-Press `M` to open the Map Local manager:
+- **Tab** — Switch between headers and body panes
+- **Enter** / **Ctrl+S** — Resume with modifications
+- **Esc** — Skip (resume unmodified)
+- **E** — Open in external editor
 
-- **n** — Add a new rule (pattern + local path, Tab to switch fields)
-- **d** — Delete a rule (with confirmation)
-- **Esc** — Close
-
-Changes auto-save back to the rules file.
-
-Flows served from local files show a `[L]` indicator in the flow list.
+All paused flows auto-resume on exit.
 
 ## Keyboard Shortcuts
 
@@ -253,7 +292,7 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 |-----|--------|
 | `S` | Scripts manager |
 | `T` | Throttle settings |
-| `M` | Map Local rules |
+| `B` | Breakpoint queue |
 | `?` | Help overlay |
 
 ## Architecture
@@ -270,8 +309,8 @@ internal/diff/        Flow diff engine
 internal/highlight/   Syntax highlighting for response/request bodies
 internal/certutil/    CA certificate generation and system trust installation
 internal/throttle/    Bandwidth throttling (wraps io.Reader with rate limiting)
-internal/maplocal/    Map remote URLs to local files (wildcard pattern matching)
-internal/scripting/   JavaScript scripting hooks (goja runtime, YAML frontmatter)
+internal/breakpoint/  Breakpoint controller (pause/resume/subscribe)
+internal/scripting/   JavaScript scripting engine (goja runtime, respondWith, readFile, breakpoint)
 ```
 
 Built with [go-mitmproxy](https://github.com/lqqyt2423/go-mitmproxy) and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
