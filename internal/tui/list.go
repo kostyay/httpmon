@@ -223,11 +223,7 @@ func (a *App) renderHostNode(host string) string {
 // renderFlowColumns formats method/status/path/dur/size columns.
 // If hostCol is non-empty it is inserted between status and path (flat mode).
 func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string) string {
-	methodText := f.Method
-	if f.MapLocal {
-		methodText = f.Method + " [L]"
-	}
-	method := styleMethod.Render(fmt.Sprintf("%-*s", colMethod, methodText))
+	method := styleMethod.Render(fmt.Sprintf("%-*s", colMethod, f.Method))
 
 	var status string
 	if f.StatusCode > 0 {

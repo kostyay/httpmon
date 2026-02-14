@@ -3,7 +3,6 @@ package tui
 import (
 	"time"
 
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -25,6 +24,7 @@ type ScriptManager interface {
 	Toggle(filePath string) error
 	Delete(filePath string) error
 	CreateNew() (string, error)
+	QuickAddMapLocal(pattern, localPath string) (string, error)
 	ScriptDir() string
 	Reload()
 }
@@ -36,10 +36,3 @@ type ThrottleController interface {
 	GetThrottleLatency() time.Duration
 }
 
-// MapLocalManager exposes map-local rule management to the TUI.
-type MapLocalManager interface {
-	Rules() []maplocal.Rule
-	AddRule(r maplocal.Rule)
-	RemoveRule(index int)
-	SaveToFile(path string) error
-}

@@ -2,12 +2,18 @@ package scripting
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/dop251/goja"
+
+	"github.com/kostyay/httpmon/internal/breakpoint"
+	"github.com/kostyay/httpmon/internal/store"
 )
 
 // RequestContext is passed to JS onRequest handlers.
@@ -17,6 +23,12 @@ type RequestContext struct {
 	Headers http.Header
 	Body    []byte
 	Blocked bool
+	Meta    store.FlowMeta
+
+	Responded       bool
+	ResponseStatus  int
+	ResponseHeaders map[string]string
+	ResponseBody    []byte
 }
 
 // ResponseContext is passed to JS onResponse handlers.
@@ -24,6 +36,12 @@ type ResponseContext struct {
 	Status  int
 	Headers http.Header
 	Body    []byte
+	Meta    store.FlowMeta
+
+	Responded       bool
+	ResponseStatus  int
+	ResponseHeaders map[string]string
+	ResponseBody    []byte
 }
 
 type script struct {
@@ -37,14 +55,22 @@ type script struct {
 
 // Engine manages loaded JS scripts and runs them via goja.
 type Engine struct {
-	mu      sync.Mutex
-	scripts []script
-	errors  []string
+	mu             sync.Mutex
+	scripts        []script
+	errors         []string
+	breakpointCtrl breakpoint.Controller
 }
 
 // New creates a scripting engine.
 func New() *Engine {
 	return &Engine{}
+}
+
+// SetBreakpointController injects the breakpoint controller.
+func (e *Engine) SetBreakpointController(ctrl breakpoint.Controller) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.breakpointCtrl = ctrl
 }
 
 // LoadScript adds a script with an optional URL pattern filter.
@@ -124,13 +150,25 @@ func (e *Engine) runOnRequest(s script, ctx *RequestContext) {
 		_ = jsCtx.Set("body", string(ctx.Body))
 	}
 
+	e.injectBreakpoint(vm, jsCtx, ctx.Meta, breakpoint.PhaseRequest)
+	injectRespondWith(vm, jsCtx, true)
+	injectReadFile(vm, jsCtx, s.filePath)
+
 	_, err = fn(goja.Undefined(), jsCtx)
+	if isGojaInterrupt(err) {
+		err = nil
+	}
 	if err != nil {
 		e.recordError(s.name, err.Error())
 		return
 	}
 
-	// Read back modified values.
+	readBackRespondWith(jsCtx, &ctx.Responded,
+		&ctx.ResponseStatus, &ctx.ResponseHeaders, &ctx.ResponseBody)
+	if ctx.Responded {
+		return
+	}
+
 	if v := jsCtx.Get("blocked"); v != nil {
 		ctx.Blocked = v.ToBoolean()
 	}
@@ -139,6 +177,9 @@ func (e *Engine) runOnRequest(s script, ctx *RequestContext) {
 	}
 	if v := jsCtx.Get("url"); v != nil {
 		ctx.URL = v.String()
+	}
+	if v := jsCtx.Get("body"); v != nil && !goja.IsUndefined(v) {
+		ctx.Body = []byte(v.String())
 	}
 
 	readBackHeaders(vm, jsCtx, ctx.Headers)
@@ -168,17 +209,233 @@ func (e *Engine) runOnResponse(s script, ctx *ResponseContext) {
 	_ = jsCtx.Set("body", string(ctx.Body))
 	_ = jsCtx.Set("headers", headersToJS(vm, ctx.Headers))
 
+	e.injectBreakpoint(vm, jsCtx, ctx.Meta, breakpoint.PhaseResponse)
+	injectRespondWith(vm, jsCtx, false)
+	injectReadFile(vm, jsCtx, s.filePath)
+
 	_, err = fn(goja.Undefined(), jsCtx)
 	if err != nil {
 		e.recordError(s.name, err.Error())
 		return
 	}
 
+	readBackRespondWith(jsCtx, &ctx.Responded,
+		&ctx.ResponseStatus, &ctx.ResponseHeaders, &ctx.ResponseBody)
+	if ctx.Responded {
+		return
+	}
+
 	if v := jsCtx.Get("status"); v != nil {
 		ctx.Status = int(v.ToInteger())
 	}
+	if v := jsCtx.Get("body"); v != nil && !goja.IsUndefined(v) {
+		ctx.Body = []byte(v.String())
+	}
 
 	readBackHeaders(vm, jsCtx, ctx.Headers)
+}
+
+// injectBreakpoint adds ctx.breakpoint() to the JS context.
+// No-op when controller is nil.
+func (e *Engine) injectBreakpoint(
+	vm *goja.Runtime, jsCtx *goja.Object,
+	meta store.FlowMeta, phase breakpoint.Phase,
+) {
+	ctrl := e.breakpointCtrl
+	if ctrl == nil {
+		_ = jsCtx.Set("breakpoint", func(goja.FunctionCall) goja.Value {
+			return goja.Undefined()
+		})
+		return
+	}
+
+	_ = jsCtx.Set("breakpoint", func(call goja.FunctionCall) goja.Value {
+		headers := jsHeadersToMap(vm, jsCtx)
+		var body []byte
+		if v := jsCtx.Get("body"); v != nil && !goja.IsUndefined(v) {
+			body = []byte(v.String())
+		}
+
+		hit := breakpoint.BreakpointHit{
+			FlowID:  meta.ID,
+			Phase:   phase,
+			Headers: headers,
+			Body:    body,
+			Meta:    meta,
+		}
+
+		resp := ctrl.Pause(hit)
+		if resp.Skipped {
+			return goja.Undefined()
+		}
+
+		for k, v := range resp.Headers {
+			hObj := jsCtx.Get("headers")
+			if hObj != nil && !goja.IsUndefined(hObj) {
+				_ = hObj.ToObject(vm).Set(k, v)
+			}
+		}
+		if resp.Body != nil {
+			_ = jsCtx.Set("body", string(resp.Body))
+		}
+		return goja.Undefined()
+	})
+}
+
+// injectRespondWith adds ctx.respondWith(opts) to the JS context.
+// In onRequest (interrupt=true), it halts script execution via goja interrupt.
+func injectRespondWith(
+	vm *goja.Runtime, jsCtx *goja.Object, interrupt bool,
+) {
+	_ = jsCtx.Set("respondWith", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return goja.Undefined()
+		}
+		opts := call.Arguments[0].ToObject(vm)
+
+		status := 200
+		if v := opts.Get("status"); v != nil && !goja.IsUndefined(v) {
+			status = int(v.ToInteger())
+		}
+
+		var body string
+		var headers map[string]string
+
+		if f := opts.Get("file"); f != nil && !goja.IsUndefined(f) {
+			path := f.String()
+			resolved := resolveScriptPath(jsCtx, path)
+			data, err := os.ReadFile(resolved)
+			if err != nil {
+				return goja.Undefined()
+			}
+			body = string(data)
+			ct := mime.TypeByExtension(filepath.Ext(resolved))
+			if ct == "" {
+				ct = "application/octet-stream"
+			}
+			headers = map[string]string{"Content-Type": ct}
+		} else {
+			if b := opts.Get("body"); b != nil && !goja.IsUndefined(b) {
+				body = b.String()
+			}
+			if h := opts.Get("headers"); h != nil && !goja.IsUndefined(h) {
+				headers = make(map[string]string)
+				hObj := h.ToObject(vm)
+				for _, k := range hObj.Keys() {
+					if val := hObj.Get(k); val != nil {
+						headers[k] = val.String()
+					}
+				}
+			}
+		}
+
+		_ = jsCtx.Set("_responded", true)
+		_ = jsCtx.Set("_responseStatus", status)
+		_ = jsCtx.Set("_responseBody", body)
+
+		if headers != nil {
+			hObj := vm.NewObject()
+			for k, v := range headers {
+				_ = hObj.Set(k, v)
+			}
+			_ = jsCtx.Set("_responseHeaders", hObj)
+		}
+
+		if interrupt {
+			vm.Interrupt("respondWith")
+		}
+		return goja.Undefined()
+	})
+}
+
+// resolveScriptPath resolves path relative to the script file directory.
+func resolveScriptPath(jsCtx *goja.Object, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if v := jsCtx.Get("_scriptDir"); v != nil && !goja.IsUndefined(v) {
+		return filepath.Join(v.String(), path)
+	}
+	return path
+}
+
+// injectReadFile adds ctx.readFile(path) to the JS context.
+func injectReadFile(
+	vm *goja.Runtime, jsCtx *goja.Object, scriptFilePath string,
+) {
+	if scriptFilePath != "" {
+		_ = jsCtx.Set("_scriptDir", filepath.Dir(scriptFilePath))
+	}
+
+	_ = jsCtx.Set("readFile", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return goja.Null()
+		}
+		path := call.Arguments[0].String()
+		resolved := resolveScriptPath(jsCtx, path)
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			return goja.Null()
+		}
+		return vm.ToValue(string(data))
+	})
+}
+
+// readBackRespondWith reads the responded flag and response fields from JS.
+func readBackRespondWith(
+	jsCtx *goja.Object,
+	responded *bool, status *int,
+	headers *map[string]string, body *[]byte,
+) {
+	v := jsCtx.Get("_responded")
+	if v == nil || goja.IsUndefined(v) || !v.ToBoolean() {
+		return
+	}
+	*responded = true
+
+	if s := jsCtx.Get("_responseStatus"); s != nil && !goja.IsUndefined(s) {
+		*status = int(s.ToInteger())
+	}
+	if b := jsCtx.Get("_responseBody"); b != nil && !goja.IsUndefined(b) {
+		*body = []byte(b.String())
+	}
+	if h := jsCtx.Get("_responseHeaders"); h != nil && !goja.IsUndefined(h) {
+		obj := h.Export()
+		if m, ok := obj.(map[string]any); ok {
+			result := make(map[string]string, len(m))
+			for k, val := range m {
+				result[k] = fmt.Sprintf("%v", val)
+			}
+			*headers = result
+		}
+	}
+}
+
+// isGojaInterrupt returns true if the error is a goja interrupt.
+func isGojaInterrupt(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*goja.InterruptedError)
+	return ok
+}
+
+// jsHeadersToMap reads the JS headers object as map[string]string.
+func jsHeadersToMap(
+	vm *goja.Runtime, jsCtx *goja.Object,
+) map[string]string {
+	result := make(map[string]string)
+	hObj := jsCtx.Get("headers")
+	if hObj == nil || goja.IsUndefined(hObj) || goja.IsNull(hObj) {
+		return result
+	}
+	obj := hObj.ToObject(vm)
+	for _, key := range obj.Keys() {
+		if val := obj.Get(key); val != nil {
+			result[key] = val.String()
+		}
+	}
+	return result
 }
 
 // headersToJS converts http.Header to a goja object (single-value per key).
@@ -221,13 +478,39 @@ func (s script) matchesURL(url string) bool {
 	return matchURL(s.urlPattern, url)
 }
 
+// ScriptCategory classifies scripts by detected API usage.
+type ScriptCategory string
+
+const (
+	CategoryScript     ScriptCategory = "Script"
+	CategoryMapLocal   ScriptCategory = "Map Local"
+	CategoryBreakpoint ScriptCategory = "Breakpoint"
+)
+
+// DetectCategories returns categories based on static source analysis.
+func DetectCategories(source string) []ScriptCategory {
+	var cats []ScriptCategory
+	if strings.Contains(source, "ctx.breakpoint()") ||
+		strings.Contains(source, "ctx.breakpoint(") {
+		cats = append(cats, CategoryBreakpoint)
+	}
+	if strings.Contains(source, "ctx.respondWith(") {
+		cats = append(cats, CategoryMapLocal)
+	}
+	if len(cats) == 0 {
+		cats = append(cats, CategoryScript)
+	}
+	return cats
+}
+
 // ScriptInfo describes a loaded script for TUI display.
 type ScriptInfo struct {
-	Name     string
-	Matches  []string
-	Enabled  bool
-	FilePath string
-	Error    string
+	Name       string
+	Matches    []string
+	Enabled    bool
+	FilePath   string
+	Error      string
+	Categories []ScriptCategory
 }
 
 // ScriptInfos returns info about all dir-loaded scripts (including errors).
@@ -241,9 +524,10 @@ func (e *Engine) ScriptInfos() []ScriptInfo {
 			continue
 		}
 		info := ScriptInfo{
-			Name:     s.name,
-			FilePath: s.filePath,
-			Enabled:  true,
+			Name:       s.name,
+			FilePath:   s.filePath,
+			Enabled:    true,
+			Categories: DetectCategories(s.source),
 		}
 		if s.meta != nil {
 			info.Matches = s.meta.Match

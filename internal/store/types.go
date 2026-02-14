@@ -15,6 +15,7 @@ const (
 	StateInProgress FlowState = iota
 	StateCompleted
 	StateFailed
+	StateBreakpoint
 )
 
 // FlowMeta holds the summary fields displayed in the list view.
@@ -30,7 +31,6 @@ type FlowMeta struct {
 	State       FlowState
 	ContentType string
 	Scheme      string
-	MapLocal    bool
 }
 
 // FlowData holds the full request/response headers and bodies.

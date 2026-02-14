@@ -11,9 +11,9 @@ import (
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -43,14 +43,14 @@ type Proxy struct {
 	// ScriptEngine is optional; enables request/response rewriting via JS scripts.
 	ScriptEngine *scripting.Engine
 
-	// MapLocal is optional; serves local files instead of upstream responses.
-	MapLocal *maplocal.MapLocal
-
 	// ThrottleBPS is initial bandwidth limit in bytes/sec (0 = unlimited).
 	ThrottleBPS int64
 
 	// ThrottleLatency is initial per-response latency to add.
 	ThrottleLatency time.Duration
+
+	// BreakpointCtrl is optional; enables script breakpoints.
+	BreakpointCtrl breakpoint.Controller
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -94,10 +94,13 @@ func (p *Proxy) Init(addr string) error {
 		return fmt.Errorf("proxy init: %w", err)
 	}
 
+	if p.ScriptEngine != nil && p.BreakpointCtrl != nil {
+		p.ScriptEngine.SetBreakpointController(p.BreakpointCtrl)
+	}
+
 	p.intc = newInterceptor(interceptorConfig{
 		Store:           p.store,
 		Engine:          p.ScriptEngine,
-		MapLocal:        p.MapLocal,
 		ThrottleBPS:     p.ThrottleBPS,
 		ThrottleLatency: p.ThrottleLatency,
 	})
@@ -155,6 +158,9 @@ func (p *Proxy) Serve(ctx context.Context) error {
 
 // Stop gracefully shuts down the proxy.
 func (p *Proxy) Stop() {
+	if p.BreakpointCtrl != nil {
+		p.BreakpointCtrl.ResumeAll()
+	}
 	if p.mp == nil {
 		return
 	}

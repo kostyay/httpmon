@@ -22,6 +22,7 @@ var (
 	styleMethod   = lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
 	styleSelected = lipgloss.NewStyle().Reverse(true)
 	styleMuted    = lipgloss.NewStyle().Foreground(colorMuted)
+	styleEnabled  = lipgloss.NewStyle().Foreground(colorGreen)
 	styleHeader   = lipgloss.NewStyle().Foreground(colorFg).Bold(true)
 
 	styleStatusBar = lipgloss.NewStyle().
