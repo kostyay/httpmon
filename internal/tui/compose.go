@@ -130,14 +130,14 @@ func (a *App) sendCompose() (tea.Model, tea.Cmd) {
 		client := &http.Client{
 			Transport: &http.Transport{
 				Proxy:           http.ProxyURL(proxyURL),
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- routes through our own MITM proxy CA
 			},
 		}
 		resp, doErr := client.Do(req)
 		if doErr != nil {
 			return tea.Printf("Send failed: %v", doErr)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return tea.Printf("Sent %s %s → %d", req.Method, rawURL, resp.StatusCode)
 	}
 }

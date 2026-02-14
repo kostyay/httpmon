@@ -56,7 +56,7 @@ func (a *App) repeatRequest() tea.Cmd {
 		client := &http.Client{
 			Transport: &http.Transport{
 				Proxy:           http.ProxyURL(proxyURL),
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // proxy's own CA
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- routes through our own MITM proxy CA
 			},
 		}
 
@@ -64,7 +64,7 @@ func (a *App) repeatRequest() tea.Cmd {
 		if err != nil {
 			return tea.Printf("Repeat failed: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return tea.Printf("Request sent (%d)", resp.StatusCode)
 	}
 }
