@@ -6,17 +6,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
+	"github.com/kostyay/httpmon/internal/throttle"
 	"github.com/kostyay/httpmon/internal/tui"
 )
 
@@ -30,6 +32,9 @@ func main() {
 	allowHosts := flag.String("allow", "", "comma-separated host patterns to allow (only these intercepted)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
+	throttleFlag := flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
+	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
+	mapLocalFlag := flag.String("maplocal", "", "path to map-local rules JSON file")
 	flag.Parse()
 
 	if *showVersion {
@@ -59,6 +64,28 @@ func main() {
 		p.HostFilter = hostfilter.New(block, allow)
 	}
 
+	// Throttle configuration.
+	if *throttleFlag != "" {
+		bps := throttle.PresetBandwidth(*throttleFlag)
+		if bps == 0 {
+			fatal("unknown throttle preset: %q (use 3g, 4g, or wifi)", *throttleFlag)
+		}
+		p.ThrottleBPS = bps
+	}
+	if *latencyFlag > 0 {
+		p.ThrottleLatency = *latencyFlag
+	}
+
+	// Map-local rules.
+	var ml *maplocal.MapLocal
+	if *mapLocalFlag != "" {
+		ml = maplocal.New()
+		if err := ml.LoadFromFile(*mapLocalFlag); err != nil {
+			fatal("maplocal: %v", err)
+		}
+		p.MapLocal = ml
+	}
+
 	addr := fmt.Sprintf(":%d", *port)
 	if err := p.Init(addr); err != nil {
 		fatal("proxy init: %v", err)
@@ -82,7 +109,19 @@ func main() {
 
 	caTrusted := certutil.IsInstalled(p.CACertPath())
 	mgr := scripting.NewManager(engine, scriptsDir)
-	app := tui.NewApp(s, p, caTrusted, mgr)
+
+	cfg := tui.AppConfig{
+		Store:     s,
+		Proxy:     p,
+		CATrusted: caTrusted,
+		Scripts:   mgr,
+		Throttle:  p,
+	}
+	if ml != nil {
+		cfg.MapLocal = ml
+		cfg.MapLocalFile = *mapLocalFlag
+	}
+	app := tui.NewApp(cfg)
 	prog := tea.NewProgram(app)
 	if _, err := prog.Run(); err != nil {
 		fatal("TUI error: %v", err)

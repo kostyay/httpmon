@@ -13,6 +13,7 @@ import (
 
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -22,6 +23,7 @@ type Proxy struct {
 	mp    *mp.Proxy
 	store *store.RingBuffer
 	addr  string
+	intc  *interceptor // kept for runtime throttle changes
 
 	// caDir is the directory containing CA cert files.
 	caDir string
@@ -40,6 +42,15 @@ type Proxy struct {
 
 	// ScriptEngine is optional; enables request/response rewriting via JS scripts.
 	ScriptEngine *scripting.Engine
+
+	// MapLocal is optional; serves local files instead of upstream responses.
+	MapLocal *maplocal.MapLocal
+
+	// ThrottleBPS is initial bandwidth limit in bytes/sec (0 = unlimited).
+	ThrottleBPS int64
+
+	// ThrottleLatency is initial per-response latency to add.
+	ThrottleLatency time.Duration
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -83,7 +94,14 @@ func (p *Proxy) Init(addr string) error {
 		return fmt.Errorf("proxy init: %w", err)
 	}
 
-	proxy.AddAddon(newInterceptor(p.store, p.ScriptEngine))
+	p.intc = newInterceptor(interceptorConfig{
+		Store:           p.store,
+		Engine:          p.ScriptEngine,
+		MapLocal:        p.MapLocal,
+		ThrottleBPS:     p.ThrottleBPS,
+		ThrottleLatency: p.ThrottleLatency,
+	})
+	proxy.AddAddon(p.intc)
 	p.mp = proxy
 	p.addr = addr
 
@@ -94,6 +112,29 @@ func (p *Proxy) Init(addr string) error {
 	}
 
 	return nil
+}
+
+// SetThrottle updates throttle settings at runtime.
+func (p *Proxy) SetThrottle(bps int64, latency time.Duration) {
+	if p.intc != nil {
+		p.intc.SetThrottle(bps, latency)
+	}
+}
+
+// GetThrottleBPS returns current bandwidth limit.
+func (p *Proxy) GetThrottleBPS() int64 {
+	if p.intc != nil {
+		return p.intc.ThrottleBPS()
+	}
+	return 0
+}
+
+// GetThrottleLatency returns current latency setting.
+func (p *Proxy) GetThrottleLatency() time.Duration {
+	if p.intc != nil {
+		return p.intc.ThrottleLatency()
+	}
+	return 0
 }
 
 // Serve starts the proxy accept loop. Blocks until ctx is cancelled or error.

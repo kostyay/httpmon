@@ -125,17 +125,17 @@ func fmtPath(i int) string { return "/v1/test/" + strconv.Itoa(i) }
 
 func newTestApp(n int) *App {
 	s := seedStore(n)
-	app := NewApp(s, nil, true, nil)
+	app := NewApp(AppConfig{Store: s, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	return app
 }
 
 func newMockApp(n int) *App {
 	m := seedMock(n)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	return app
 }
 
@@ -271,9 +271,9 @@ func TestFilterByHost(t *testing.T) {
 	m.data["a"] = &store.FlowData{}
 	m.data["b"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Focus filter, type "other", apply
 	sendKey(app, "/")
@@ -281,7 +281,7 @@ func TestFilterByHost(t *testing.T) {
 		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "other.io") {
@@ -301,9 +301,9 @@ func TestClearFilter(t *testing.T) {
 	m.data["a"] = &store.FlowData{}
 	m.data["b"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Apply filter
 	sendKey(app, "/")
@@ -311,14 +311,14 @@ func TestClearFilter(t *testing.T) {
 		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Clear filter: open filter, clear text, enter
 	sendKey(app, "/")
 	// Select all + delete to clear
 	app.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}) // clear line
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "other.io") {
@@ -415,9 +415,9 @@ func TestNextFlowBoundaries(t *testing.T) {
 }
 
 func TestProxyAddrNilFallback(t *testing.T) {
-	app := NewApp(seedMock(1), nil, true, nil)
+	app := NewApp(AppConfig{Store: seedMock(1), CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	got := app.proxyAddr()
 	if got != ":8080" {
@@ -426,9 +426,9 @@ func TestProxyAddrNilFallback(t *testing.T) {
 }
 
 func TestProxyAddrFromMock(t *testing.T) {
-	app := NewApp(seedMock(1), &mockProxyInfo{addr: ":3128"}, true, nil)
+	app := NewApp(AppConfig{Store: seedMock(1), Proxy: &mockProxyInfo{addr: ":3128"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	got := app.proxyAddr()
 	if got != ":3128" {
@@ -439,9 +439,9 @@ func TestProxyAddrFromMock(t *testing.T) {
 // TestRingBufferSatisfiesFlowReader confirms the real store works through the interface.
 func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 	s := seedStore(3)
-	app := NewApp(s, nil, true, nil)
+	app := NewApp(AppConfig{Store: s, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	if len(app.flows) != 3 {
 		t.Errorf("flows = %d, want 3", len(app.flows))
@@ -492,9 +492,9 @@ func TestDetailStatusBarShowsPrettyRaw(t *testing.T) {
 
 func TestStatusBarShowsCAWarning(t *testing.T) {
 	m := seedMock(1)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, false, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: false})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "CA NOT TRUSTED") {
@@ -514,9 +514,9 @@ func TestFlatListScrollsWithCursor(t *testing.T) {
 	// Height=12 → maxRows = 12-5 = 7. With 20 flows, scrolling past row 6
 	// should shift the viewport so the selected row is visible.
 	m := seedMock(20)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Move cursor to row 10 (well past the 7-row viewport).
 	for range 10 {
@@ -541,9 +541,9 @@ func TestScrollUpKeepsViewportStable(t *testing.T) {
 	// Then scroll up one — cursor at 9. Viewport should NOT shift:
 	// bottom row should still be row 10 (not row 9).
 	m := seedMock(20)
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Move cursor to row 10, calling View() each step (like real Bubble Tea).
 	for range 10 {

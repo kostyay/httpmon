@@ -16,6 +16,9 @@ Think Proxyman or Charles, but in your terminal.
 - **Request tools** — Compose new requests, repeat captured ones, copy as cURL
 - **Diff view** — Mark two flows and compare request/response side-by-side
 - **Host filtering** — Block or allow hosts at the proxy layer with wildcard patterns
+- **Scripting** — JavaScript hooks to modify requests/responses on the fly
+- **Bandwidth throttling** — Simulate 3G/4G/WiFi network conditions
+- **Map Local** — Serve local files instead of upstream responses
 - **Keyboard-driven** — Vim-style navigation throughout — no mouse required
 
 ## Quick Start
@@ -42,6 +45,10 @@ httpmon                          # Start proxy on :8080
 httpmon --port 9090              # Custom port
 httpmon --block "*.ads.com"      # Block hosts matching pattern
 httpmon --allow "api.example.*"  # Only intercept matching hosts
+httpmon --throttle 3g            # Simulate 3G network (750 kbps)
+httpmon --throttle 4g            # Simulate 4G network (4 Mbps)
+httpmon --latency 100ms          # Add 100ms latency to responses
+httpmon --maplocal rules.json    # Serve local files for matching URLs
 httpmon --install-ca             # Install CA cert into system trust store (needs sudo)
 httpmon --version                # Print version
 ```
@@ -77,6 +84,130 @@ sudo update-ca-certificates
 ```
 
 </details>
+
+## Scripting
+
+Scripts are JavaScript files stored in `~/.httpmon/scripts/`. Each script has a YAML frontmatter header and exports `onRequest` and/or `onResponse` hooks.
+
+### Script format
+
+```javascript
+// ---
+// name: Add Auth Header
+// match:
+//   - "*://api.example.com/*"
+// enabled: true
+// ---
+
+function onRequest(ctx) {
+  ctx.headers["Authorization"] = "Bearer my-token";
+}
+
+function onResponse(ctx) {
+  // ctx.status, ctx.headers, ctx.body
+}
+```
+
+### Header fields
+
+| Field | Description |
+|-------|-------------|
+| `name` | Display name (required) |
+| `match` | URL patterns to match — `*` wildcards supported (required) |
+| `enabled` | `true` or `false` — defaults to `true` if omitted |
+
+### Hooks
+
+**`onRequest(ctx)`** — runs before the request is sent upstream.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ctx.method` | string | HTTP method (read/write) |
+| `ctx.url` | string | Full URL (read/write) |
+| `ctx.headers` | object | Request headers (read/write) |
+| `ctx.body` | string | Request body (read) |
+| `ctx.blocked` | bool | Set to `true` to block the request |
+
+**`onResponse(ctx)`** — runs before the response reaches the client.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ctx.status` | int | Status code (read/write) |
+| `ctx.headers` | object | Response headers (read/write) |
+| `ctx.body` | string | Response body (read) |
+
+### Managing scripts
+
+Press `S` in the TUI to open the scripts manager. From there:
+
+- **Space** — Toggle a script on/off
+- **n** — Create a new script from template
+- **d** — Delete a script (with confirmation)
+
+Scripts are reloaded each time the manager opens.
+
+## Throttle
+
+Simulate slow network conditions. Throttling applies to all response bodies.
+
+### Presets
+
+| Preset | Bandwidth | Latency |
+|--------|-----------|---------|
+| `3g` | 750 kbps (93,750 B/s) | 100ms |
+| `4g` | 4 Mbps (500,000 B/s) | 50ms |
+| `wifi` | 30 Mbps (3,750,000 B/s) | 5ms |
+
+### CLI
+
+```bash
+httpmon --throttle 3g             # Apply 3G preset
+httpmon --throttle wifi --latency 200ms  # WiFi bandwidth + custom latency
+```
+
+### TUI
+
+Press `T` to open the throttle modal. Select a preset with `j`/`k` and press `Enter` to apply. The active preset shows in the status bar.
+
+## Map Local
+
+Serve local files instead of fetching from upstream. Matched requests return the local file's content with the appropriate content type.
+
+### Rules JSON format
+
+```json
+[
+  {
+    "pattern": "api.example.com/config",
+    "local_path": "/path/to/config.json",
+    "status_code": 200
+  },
+  {
+    "pattern": "*.example.com/styles/*",
+    "local_path": "/path/to/override.css"
+  }
+]
+```
+
+`pattern` supports `*` wildcards. `status_code` defaults to 200 if omitted.
+
+### CLI
+
+```bash
+httpmon --maplocal rules.json
+```
+
+### TUI
+
+Press `M` to open the Map Local manager:
+
+- **n** — Add a new rule (pattern + local path, Tab to switch fields)
+- **d** — Delete a rule (with confirmation)
+- **Esc** — Close
+
+Changes auto-save back to the rules file.
+
+Flows served from local files show a `[L]` indicator in the flow list.
 
 ## Keyboard Shortcuts
 
@@ -116,6 +247,15 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 | `r` | Repeat request |
 | `Esc` | Back to list |
 
+### Global
+
+| Key | Action |
+|-----|--------|
+| `S` | Scripts manager |
+| `T` | Throttle settings |
+| `M` | Map Local rules |
+| `?` | Help overlay |
+
 ## Architecture
 
 ```
@@ -129,9 +269,9 @@ internal/har/         HAR 1.2 export
 internal/diff/        Flow diff engine
 internal/highlight/   Syntax highlighting for response/request bodies
 internal/certutil/    CA certificate generation and system trust installation
-internal/throttle/    Bandwidth throttling
-internal/maplocal/    Map remote URLs to local files
-internal/scripting/   Lua scripting hooks
+internal/throttle/    Bandwidth throttling (wraps io.Reader with rate limiting)
+internal/maplocal/    Map remote URLs to local files (wildcard pattern matching)
+internal/scripting/   JavaScript scripting hooks (goja runtime, YAML frontmatter)
 ```
 
 Built with [go-mitmproxy](https://github.com/lqqyt2423/go-mitmproxy) and [Bubble Tea](https://github.com/charmbracelet/bubbletea).

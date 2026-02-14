@@ -2,10 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
-
-	"os"
 
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
@@ -13,11 +12,13 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kostyay/httpmon/internal/filter"
+	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
-type tickMsg time.Time
+// TickMsg triggers a flow list refresh in the TUI.
+type TickMsg time.Time
 
 // listMode constants
 const (
@@ -84,6 +85,23 @@ type App struct {
 	scriptsList          []scripting.ScriptInfo
 	scriptsConfirmDelete bool
 
+	// throttle modal
+	throttle       ThrottleController
+	showThrottle   bool
+	throttleCursor int
+
+	// map local modal
+	mapLocal              MapLocalManager
+	mapLocalFile          string // path for auto-persist
+	showMapLocal          bool
+	mapLocalCursor        int
+	mapLocalRules         []maplocal.Rule
+	mapLocalConfirmDelete bool
+	mapLocalAdding        bool
+	mapLocalAddFocus      int // 0=pattern, 1=path
+	mapLocalPatternInput  textinput.Model
+	mapLocalPathInput     textinput.Model
+
 	// detail search
 	detailSearch    bool
 	searchInput     textinput.Model
@@ -103,7 +121,19 @@ type App struct {
 	ready         bool
 }
 
-func NewApp(s FlowReader, p ProxyInfo, caTrusted bool, sm ScriptManager) *App {
+// AppConfig holds all dependencies for the TUI application.
+type AppConfig struct {
+	Store        FlowReader
+	Proxy        ProxyInfo
+	CATrusted    bool
+	Scripts      ScriptManager
+	Throttle     ThrottleController
+	MapLocal     MapLocalManager
+	MapLocalFile string
+}
+
+// NewApp creates a TUI application from the given config.
+func NewApp(cfg AppConfig) *App {
 	ti := textinput.New()
 	ti.Placeholder = "/ to filter..."
 	ti.CharLimit = 256
@@ -113,10 +143,13 @@ func NewApp(s FlowReader, p ProxyInfo, caTrusted bool, sm ScriptManager) *App {
 	si.CharLimit = 256
 
 	return &App{
-		store:           s,
-		proxy:           p,
-		caTrusted:       caTrusted,
-		scripts:         sm,
+		store:           cfg.Store,
+		proxy:           cfg.Proxy,
+		caTrusted:       cfg.CATrusted,
+		scripts:         cfg.Scripts,
+		throttle:        cfg.Throttle,
+		mapLocal:        cfg.MapLocal,
+		mapLocalFile:    cfg.MapLocalFile,
 		filterInput:     ti,
 		searchInput:     si,
 		hostExpanded:    make(map[string]bool),
@@ -126,7 +159,7 @@ func NewApp(s FlowReader, p ProxyInfo, caTrusted bool, sm ScriptManager) *App {
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
+		return TickMsg(t)
 	})
 }
 
@@ -146,7 +179,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case tickMsg:
+	case TickMsg:
 		a.refreshFlows()
 		return a, tickCmd()
 
@@ -172,6 +205,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "?" {
 			a.showHelp = true
 			return a, nil
+		}
+		if a.showThrottle {
+			return a.updateThrottle(msg)
+		}
+		if a.showMapLocal {
+			return a.updateMapLocal(msg)
 		}
 		if a.showScripts {
 			return a.updateScripts(msg)
@@ -215,6 +254,10 @@ func (a *App) viewContent() string {
 		return a.viewDiff()
 	case a.showHelp:
 		return a.viewHelp()
+	case a.showThrottle:
+		return a.viewThrottle()
+	case a.showMapLocal:
+		return a.viewMapLocal()
 	case a.showScripts:
 		return a.viewScripts()
 	case a.showMenu:
@@ -312,6 +355,16 @@ func (a *App) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "S":
 		if a.scripts != nil {
 			a.initScripts()
+		}
+		return a, nil
+	case "T":
+		if a.throttle != nil {
+			a.initThrottle()
+		}
+		return a, nil
+	case "M":
+		if a.mapLocal != nil {
+			a.initMapLocal()
 		}
 		return a, nil
 	}
@@ -485,18 +538,25 @@ func (a *App) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.updateDetailSearch(msg)
 	}
 
-	if msg.String() == "space" {
+	switch msg.String() {
+	case "space":
 		a.initMenu()
 		return a, nil
-	}
-	if msg.String() == "S" {
+	case "S":
 		if a.scripts != nil {
 			a.initScripts()
 		}
 		return a, nil
-	}
-
-	switch msg.String() {
+	case "T":
+		if a.throttle != nil {
+			a.initThrottle()
+		}
+		return a, nil
+	case "M":
+		if a.mapLocal != nil {
+			a.initMapLocal()
+		}
+		return a, nil
 	case "esc", "q":
 		a.showDetail = false
 		a.detailImagePreview = false
@@ -726,7 +786,11 @@ func (a *App) statusText() string {
 	if !a.caTrusted {
 		warning = styleWarning.Render("CA NOT TRUSTED") + "  "
 	}
+
 	info := fmt.Sprintf("%d flows | Proxy %s", a.totalFlows, addr)
+	if label := a.throttleStatusLabel(); label != "" {
+		info += " | " + styleWarning.Render("Throttle: "+label)
+	}
 
 	var help string
 	switch a.listMode {

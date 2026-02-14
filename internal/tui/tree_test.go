@@ -160,9 +160,9 @@ func newMultiHostApp() *App {
 		m.data[meta.ID] = &store.FlowData{}
 	}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	return app
 }
 
@@ -208,7 +208,7 @@ func TestTreeExpandCollapse(t *testing.T) {
 
 	// Expand first host (cursor is on row 0)
 	sendKey(app, "l")
-	app.Update(tickMsg(time.Now())) // refresh
+	app.Update(TickMsg(time.Now())) // refresh
 	if !app.hostExpanded[app.treeRows[0].Host] {
 		t.Error("host should be expanded after l")
 	}
@@ -223,7 +223,7 @@ func TestTreeCollapseFromChild(t *testing.T) {
 
 	// Expand first host
 	sendKey(app, "l")
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Move to first child flow
 	sendKey(app, "j")
@@ -285,7 +285,7 @@ func TestTreeEnterOnHost(t *testing.T) {
 
 	// Enter on collapsed host should expand
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	host := app.treeRows[0].Host
 	if !app.hostExpanded[host] {
@@ -295,7 +295,7 @@ func TestTreeEnterOnHost(t *testing.T) {
 	// Enter again should collapse
 	app.selectedIdx = 0
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	if app.hostExpanded[host] {
 		t.Error("Enter on expanded host should collapse it")
 	}
@@ -307,7 +307,7 @@ func TestTreeEnterOnFlow(t *testing.T) {
 
 	// Expand and navigate to flow
 	sendKey(app, "l") // expand
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 	sendKey(app, "j") // move to first flow
 
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -336,7 +336,7 @@ func TestFocusEnterOnFlow(t *testing.T) {
 func TestTreeViewContainsHostNodes(t *testing.T) {
 	app := newMultiHostApp()
 	sendKey(app, "t")
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "api.example.com") {
@@ -354,7 +354,7 @@ func TestTreeViewExpandedShowsFlows(t *testing.T) {
 	app := newMultiHostApp()
 	sendKey(app, "t")
 	sendKey(app, "l") // expand
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "▾") {
@@ -366,7 +366,7 @@ func TestFocusViewShowsHostHeader(t *testing.T) {
 	app := newMultiHostApp()
 	sendKey(app, "t")
 	sendKey(app, "f")
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "Esc to unfocus") {
@@ -411,7 +411,7 @@ func TestStatusBarFlatMode(t *testing.T) {
 func TestTreeEmptyStore(t *testing.T) {
 	app := newMockApp(0)
 	sendKey(app, "t")
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	view := stripView(app)
 	if !strings.Contains(view, "Waiting for traffic") {
@@ -422,7 +422,7 @@ func TestTreeEmptyStore(t *testing.T) {
 func TestTreeSingleHost(t *testing.T) {
 	app := newMockApp(3) // all same host
 	sendKey(app, "t")
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	hostCount := 0
 	for _, r := range app.treeRows {
@@ -475,7 +475,7 @@ func TestTreeFilterIntegration(t *testing.T) {
 		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Should only have api.example.com host
 	for _, r := range app.treeRows {
@@ -495,9 +495,9 @@ func TestFocusHostEvicted(t *testing.T) {
 	m.data["a1"] = &store.FlowData{}
 	m.data["b1"] = &store.FlowData{}
 
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Enter tree mode
 	sendKey(app, "t")
@@ -515,7 +515,7 @@ func TestFocusHostEvicted(t *testing.T) {
 	// Remove cdn.com from mock
 	m.metas = m.metas[:1] // only api.com remains
 
-	app.Update(tickMsg(time.Now()))
+	app.Update(TickMsg(time.Now()))
 
 	// Should fall back to tree mode
 	if app.listMode != modeTree {
