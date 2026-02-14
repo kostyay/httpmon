@@ -1,6 +1,18 @@
 # Changelog
 
-## feat/tree-view-flow-list
+## feat/throttle-maplocal
+
+Bandwidth throttling and map-local file serving gain full TUI modals with
+keyboard-driven preset selection (3G/4G/WiFi) and rule management. The proxy
+interceptor now correctly completes MapLocal flows during the Request phase,
+fixing a bug where locally-served responses stayed in-progress indefinitely.
+
+23 end-to-end tests exercise the full stack (real HTTP server → MITM proxy →
+store → TUI) across five categories: capture, filtering, views, actions, and
+proxy features. All tests run in parallel with per-test isolation. README
+updated with scripting, throttling, and map-local documentation.
+
+## feat/tree-view-flow-list (#7)
 
 JavaScript scripting engine with YAML-frontmatter script files, glob-based URL
 matching, and `onRequest`/`onResponse` hooks that can modify headers, bodies,
@@ -23,7 +35,7 @@ Supporting packages round out the feature set: HAR export, request diff, request
 repeat, cURL copy (OSC 52 clipboard), request composer, throttling, map-local
 file serving, and advanced filter expressions.
 
-## feat/phase1-core-pipeline-tui
+## feat/phase1-core-pipeline-tui (#3)
 
 Full HTTP/HTTPS debugging proxy with terminal UI (#3). Captures request/response
 flows through a go-mitmproxy MITM interceptor into a thread-safe ring buffer
@@ -36,7 +48,7 @@ New `--install-ca` flag automates CA certificate trust on macOS and Linux,
 replacing manual platform-specific commands. Runs `security add-trusted-cert`
 on darwin and `update-ca-certificates` on linux; just `sudo httpmon --install-ca`.
 
-## feat/project-scaffold
+## feat/project-scaffold (#1)
 
 Full project scaffolding with security-first CI/CD pipeline. Go 1.25 module
 with golangci-lint, goreleaser for cross-platform releases, and a three-layer
