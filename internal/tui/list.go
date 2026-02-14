@@ -12,14 +12,163 @@ import (
 const (
 	colMethod = 7
 	colStatus = 6
+	colType   = 12
 	colDur    = 8
 	colSize   = 8
 )
 
 func (a *App) viewList() string {
+	switch a.listMode {
+	case modeTree:
+		return a.viewTreeList()
+	case modeFocus:
+		return a.viewFocusList()
+	default:
+		return a.viewFlatList()
+	}
+}
+
+func (a *App) viewFlatList() string {
 	var b strings.Builder
 
-	// Filter bar
+	a.writeFilterBar(&b)
+
+	hostW, pathW := a.columnWidths()
+	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %*s %*s",
+		colMethod, "METHOD",
+		colStatus, "STATUS",
+		hostW, "HOST",
+		pathW, "PATH",
+		colType, "TYPE",
+		colDur, "DUR",
+		colSize, "SIZE",
+	)
+	a.writeColumnHeader(&b, hdr)
+
+	if len(a.flows) == 0 {
+		a.writeEmptyMessage(&b, fmt.Sprintf("Waiting for traffic... proxy at %s", a.proxyAddr()))
+	}
+
+	a.writeRows(&b, len(a.flows), func(i int) string {
+		return a.renderFlowRow(a.flows[i], hostW, pathW)
+	})
+
+	return b.String()
+}
+
+func (a *App) viewTreeList() string {
+	var b strings.Builder
+
+	a.writeFilterBar(&b)
+
+	pathW := a.treePathWidth()
+	hdr := fmt.Sprintf("    %-*s %-*s %-*s %-*s %*s %*s",
+		colMethod, "METHOD",
+		colStatus, "STATUS",
+		pathW, "PATH",
+		colType, "TYPE",
+		colDur, "DUR",
+		colSize, "SIZE",
+	)
+	a.writeColumnHeader(&b, hdr)
+
+	if len(a.treeRows) == 0 {
+		a.writeEmptyMessage(&b, fmt.Sprintf("Waiting for traffic... proxy at %s", a.proxyAddr()))
+	}
+
+	a.writeRows(&b, len(a.treeRows), func(i int) string {
+		return a.renderTreeRow(a.treeRows[i], pathW)
+	})
+
+	return b.String()
+}
+
+func (a *App) viewFocusList() string {
+	var b strings.Builder
+
+	// Focus header replaces filter bar.
+	b.WriteString(styleHeader.Render(fmt.Sprintf("[%s]", a.focusHost)))
+	b.WriteString("  ")
+	b.WriteString(styleMuted.Render("Esc to unfocus"))
+	b.WriteString("\n")
+
+	pathW := a.focusPathWidth()
+	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s %*s",
+		colMethod, "METHOD",
+		colStatus, "STATUS",
+		pathW, "PATH",
+		colType, "TYPE",
+		colDur, "DUR",
+		colSize, "SIZE",
+	)
+	a.writeColumnHeader(&b, hdr)
+
+	if len(a.treeRows) == 0 {
+		a.writeEmptyMessage(&b, "No flows for this host")
+	}
+
+	a.writeRows(&b, len(a.treeRows), func(i int) string {
+		return renderFlowColumns(a.treeRows[i].Flow, pathW, "")
+	})
+
+	return b.String()
+}
+
+// writeColumnHeader writes a styled header line and separator.
+func (a *App) writeColumnHeader(b *strings.Builder, hdr string) {
+	b.WriteString(styleHeader.Render(truncate(hdr, a.width)))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", a.width))
+	b.WriteString("\n")
+}
+
+// writeEmptyMessage writes a muted placeholder line.
+func (a *App) writeEmptyMessage(b *strings.Builder, msg string) {
+	b.WriteString(styleMuted.Render(msg))
+	b.WriteString("\n")
+}
+
+// writeRows renders visible rows with selection highlight, pads remaining space,
+// and appends the status bar. Adjusts listOffset only when cursor escapes the
+// visible window, keeping the viewport stable otherwise.
+func (a *App) writeRows(b *strings.Builder, count int, renderFn func(int) string) {
+	maxRows := max(a.height-5, 0)
+
+	// Clamp listOffset: scroll down if cursor below viewport, up if above.
+	if maxRows > 0 {
+		if a.selectedIdx < a.listOffset {
+			a.listOffset = a.selectedIdx
+		}
+		if a.selectedIdx >= a.listOffset+maxRows {
+			a.listOffset = a.selectedIdx - maxRows + 1
+		}
+	}
+	// Ensure offset doesn't exceed valid range.
+	if a.listOffset > count-maxRows {
+		a.listOffset = max(count-maxRows, 0)
+	}
+
+	visible := 0
+	for i := a.listOffset; i < count && visible < maxRows; i++ {
+		line := renderFn(i)
+		if i == a.selectedIdx {
+			line = styleSelected.Width(a.width).Render(line)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+		visible++
+	}
+
+	used := 4 + visible
+	for used < a.height-1 {
+		b.WriteString("\n")
+		used++
+	}
+
+	b.WriteString(a.statusText())
+}
+
+func (a *App) writeFilterBar(b *strings.Builder) {
 	if a.filterInput.Focused() {
 		b.WriteString(a.filterInput.View())
 	} else if a.filterText != "" {
@@ -28,72 +177,52 @@ func (a *App) viewList() string {
 		b.WriteString(styleMuted.Render("/ to filter..."))
 	}
 	b.WriteString("\n")
-
-	// Column headers
-	hostW, pathW := a.columnWidths()
-	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s %*s",
-		colMethod, "METHOD",
-		colStatus, "STATUS",
-		hostW, "HOST",
-		pathW, "PATH",
-		colDur, "DUR",
-		colSize, "SIZE",
-	)
-	b.WriteString(styleHeader.Render(truncate(hdr, a.width)))
-	b.WriteString("\n")
-
-	// Separator
-	b.WriteString(strings.Repeat("─", a.width))
-	b.WriteString("\n")
-
-	if len(a.flows) == 0 {
-		empty := fmt.Sprintf("Waiting for traffic... proxy at %s", a.proxyAddr())
-		b.WriteString(styleMuted.Render(empty))
-		b.WriteString("\n")
-	}
-
-	// Flow rows
-	maxRows := a.height - 5 // filter + header + sep + status + margin
-	if maxRows < 0 {
-		maxRows = 0
-	}
-	for i, f := range a.flows {
-		if i >= maxRows {
-			break
-		}
-		row := a.renderFlowRow(f, hostW, pathW)
-		if i == a.selectedIdx {
-			row = styleSelected.Width(a.width).Render(row)
-		}
-		b.WriteString(row)
-		b.WriteString("\n")
-	}
-
-	// Pad remaining space
-	used := 4 + min(len(a.flows), maxRows)
-	for used < a.height-1 {
-		b.WriteString("\n")
-		used++
-	}
-
-	// Status bar
-	b.WriteString(a.statusText())
-
-	return b.String()
 }
 
 func (a *App) columnWidths() (hostW, pathW int) {
-	fixed := colMethod + colStatus + colDur + colSize + 5 // 5 spaces between columns
-	remaining := a.width - fixed
-	if remaining < 20 {
-		remaining = 20
-	}
+	fixed := colMethod + colStatus + colType + colDur + colSize + 6 // 6 spaces between columns
+	remaining := max(a.width-fixed, 20)
 	hostW = remaining * 40 / 100
 	pathW = remaining - hostW
 	return
 }
 
-func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
+// treePathWidth returns path column width for tree mode (no HOST column, 4-char indent).
+func (a *App) treePathWidth() int {
+	fixed := 4 + colMethod + colStatus + colType + colDur + colSize + 5 // indent + gaps
+	return max(a.width-fixed, 10)
+}
+
+// focusPathWidth returns path column width for focus mode (no HOST, no indent).
+func (a *App) focusPathWidth() int {
+	fixed := colMethod + colStatus + colType + colDur + colSize + 5 // gaps
+	return max(a.width-fixed, 10)
+}
+
+func (a *App) renderTreeRow(row treeRow, pathW int) string {
+	if row.IsHost {
+		return a.renderHostNode(row.Host)
+	}
+	return "    " + renderFlowColumns(row.Flow, pathW, "")
+}
+
+func (a *App) renderHostNode(host string) string {
+	icon := "▸"
+	if a.hostExpanded[host] {
+		icon = "▾"
+	}
+	count := 0
+	for _, f := range a.flows {
+		if f.Host == host {
+			count++
+		}
+	}
+	return fmt.Sprintf("%s %s (%d)", icon, host, count)
+}
+
+// renderFlowColumns formats method/status/path/dur/size columns.
+// If hostCol is non-empty it is inserted between status and path (flat mode).
+func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string) string {
 	method := styleMethod.Render(fmt.Sprintf("%-*s", colMethod, f.Method))
 
 	var status string
@@ -103,8 +232,8 @@ func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
 		status = styleMuted.Render(fmt.Sprintf("%-*s", colStatus, "..."))
 	}
 
-	host := truncPad(f.Host, hostW)
 	path := truncPad(f.Path, pathW)
+	ctype := styleMuted.Render(truncPad(shortContentType(f.ContentType), colType))
 
 	var dur string
 	if f.State == store.StateCompleted {
@@ -115,7 +244,14 @@ func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
 
 	size := fmt.Sprintf("%*s", colSize, formatSize(f.SizeBytes))
 
-	return fmt.Sprintf("%s %s %s %s %s %s", method, status, host, path, dur, size)
+	if hostCol != "" {
+		return fmt.Sprintf("%s %s %s %s %s %s %s", method, status, hostCol, path, ctype, dur, size)
+	}
+	return fmt.Sprintf("%s %s %s %s %s %s", method, status, path, ctype, dur, size)
+}
+
+func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
+	return renderFlowColumns(f, pathW, truncPad(f.Host, hostW))
 }
 
 func formatDuration(d time.Duration) string {
@@ -140,6 +276,56 @@ func formatSize(b int64) string {
 	default:
 		return fmt.Sprintf("%.1fM", float64(b)/(1024*1024))
 	}
+}
+
+// shortContentType returns a compact label for common MIME types.
+func shortContentType(ct string) string {
+	if ct == "" {
+		return ""
+	}
+	// Strip parameters (e.g. "; charset=utf-8").
+	if idx := strings.IndexByte(ct, ';'); idx >= 0 {
+		ct = ct[:idx]
+	}
+	ct = strings.TrimSpace(ct)
+
+	// Well-known short labels.
+	switch ct {
+	case "application/json":
+		return "json"
+	case "application/xml", "text/xml":
+		return "xml"
+	case "text/html":
+		return "html"
+	case "text/plain":
+		return "text"
+	case "text/css":
+		return "css"
+	case "application/javascript", "text/javascript":
+		return "js"
+	case "application/octet-stream":
+		return "binary"
+	case "multipart/form-data":
+		return "multipart"
+	case "application/x-www-form-urlencoded":
+		return "form"
+	case "application/grpc":
+		return "grpc"
+	case "application/pdf":
+		return "pdf"
+	case "application/protobuf", "application/x-protobuf":
+		return "protobuf"
+	}
+
+	// image/png → png, font/woff2 → woff2, etc.
+	if strings.HasPrefix(ct, "image/") {
+		return ct[6:]
+	}
+	if strings.HasPrefix(ct, "font/") {
+		return ct[5:]
+	}
+
+	return ct
 }
 
 func truncPad(s string, w int) string {

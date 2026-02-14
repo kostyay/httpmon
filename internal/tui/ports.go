@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/kostyay/httpmon/internal/store"
+import (
+	"github.com/kostyay/httpmon/internal/scripting"
+	"github.com/kostyay/httpmon/internal/store"
+)
 
 // FlowReader is the read-only port the TUI uses to access captured flows.
 type FlowReader interface {
@@ -11,4 +14,14 @@ type FlowReader interface {
 // ProxyInfo exposes proxy status to the TUI (listen address, etc.).
 type ProxyInfo interface {
 	Addr() string
+}
+
+// ScriptManager exposes script operations to the TUI.
+type ScriptManager interface {
+	Scripts() []scripting.ScriptInfo
+	Toggle(filePath string) error
+	Delete(filePath string) error
+	CreateNew() (string, error)
+	ScriptDir() string
+	Reload()
 }

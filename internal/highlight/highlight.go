@@ -4,8 +4,10 @@ package highlight
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -17,6 +19,14 @@ import (
 func Highlight(body []byte, contentType string, darkBg bool, prettyJSON bool) string {
 	if len(body) == 0 {
 		return ""
+	}
+
+	if IsBinary(body, contentType) {
+		ct := contentType
+		if ct == "" {
+			ct = "unknown"
+		}
+		return fmt.Sprintf("[binary content: %s, %s]", ct, formatBinarySize(len(body)))
 	}
 
 	mediaType, _, _ := mime.ParseMediaType(contentType)
@@ -87,6 +97,103 @@ var mimeToLexer = map[string]string{
 	"text/javascript":                 "javascript",
 	"text/csv":                        "csv",
 	"text/yaml":                       "yaml",
+}
+
+// binaryMIMEPrefixes are MIME type prefixes that are always binary.
+var binaryMIMEPrefixes = []string{"image/", "audio/", "video/", "font/"}
+
+// binaryMIMETypes are specific MIME types that are always binary.
+var binaryMIMETypes = map[string]bool{
+	"application/octet-stream":          true,
+	"application/zip":                   true,
+	"application/gzip":                  true,
+	"application/x-gzip":               true,
+	"application/x-tar":                true,
+	"application/x-bzip2":              true,
+	"application/x-7z-compressed":      true,
+	"application/x-rar-compressed":     true,
+	"application/pdf":                  true,
+	"application/wasm":                 true,
+	"application/x-shockwave-flash":    true,
+	"application/x-protobuf":           true,
+	"application/protobuf":             true,
+	"application/x-google-protobuf":    true,
+	"application/grpc":                 true,
+	"application/grpc+proto":           true,
+	"application/vnd.ms-fontobject":    true,
+	"application/x-font-ttf":          true,
+	"application/x-font-opentype":     true,
+	"application/x-executable":        true,
+	"application/x-mach-binary":       true,
+	"application/vnd.apple.pkpass":     true,
+	"application/vnd.ms-excel":        true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+}
+
+// magicHeaders maps file magic bytes to format names.
+var magicHeaders = []struct {
+	magic []byte
+	name  string
+}{
+	{[]byte{0xFF, 0xD8, 0xFF}, "JPEG"},
+	{[]byte{0x89, 0x50, 0x4E, 0x47}, "PNG"},
+	{[]byte("GIF87a"), "GIF"},
+	{[]byte("GIF89a"), "GIF"},
+	{[]byte{0x52, 0x49, 0x46, 0x46}, "RIFF (WebP/AVI)"},
+	{[]byte{0x50, 0x4B, 0x03, 0x04}, "ZIP"},
+	{[]byte{0x1F, 0x8B}, "gzip"},
+	{[]byte("%PDF"), "PDF"},
+	{[]byte{0x7F, 0x45, 0x4C, 0x46}, "ELF"},
+	{[]byte{0x00, 0x61, 0x73, 0x6D}, "WebAssembly"},
+}
+
+// IsBinary reports whether the content is binary based on content-type and body inspection.
+func IsBinary(body []byte, contentType string) bool {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+
+	// Check MIME prefixes.
+	for _, prefix := range binaryMIMEPrefixes {
+		if strings.HasPrefix(mediaType, prefix) {
+			return true
+		}
+	}
+
+	// Check explicit binary MIME types.
+	if binaryMIMETypes[mediaType] {
+		return true
+	}
+
+	// Inspect body bytes.
+	if len(body) > 0 {
+		// Check magic bytes.
+		for _, m := range magicHeaders {
+			if bytes.HasPrefix(body, m.magic) {
+				return true
+			}
+		}
+		// NUL byte check (strong binary indicator).
+		if bytes.ContainsRune(body, 0) {
+			return true
+		}
+		// Invalid UTF-8 check.
+		if !utf8.Valid(body) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// formatBinarySize returns a human-readable size string.
+func formatBinarySize(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 func lexerForMIME(mediaType string) string {

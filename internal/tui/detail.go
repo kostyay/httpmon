@@ -51,10 +51,46 @@ func (a *App) viewDetail() string {
 	if a.detailRaw {
 		mode = "raw"
 	}
-	bar := fmt.Sprintf("n/N prev/next flow  j/k scroll  1/2 tabs  p:%s  Esc back  %s", mode, scrollPct)
+	imageHint := ""
+	if a.detailBodyIsImage() {
+		if a.detailImagePreview {
+			imageHint = "  i:text"
+		} else {
+			imageHint = "  i:image"
+		}
+	}
+	var bar string
+	if a.detailSearch {
+		matchInfo := fmt.Sprintf("%d/%d matches", a.searchMatchIdx+1, a.searchMatchCount)
+		if a.searchMatchCount == 0 {
+			matchInfo = "0 matches"
+		}
+		if a.searchInput.Focused() {
+			bar = fmt.Sprintf("/%s  %s  Enter:commit  Esc:cancel", a.searchInput.Value(), matchInfo)
+		} else {
+			bar = fmt.Sprintf("search: %s  %s  n/N:next/prev  Esc:clear", a.searchQuery, matchInfo)
+		}
+	} else {
+		bar = fmt.Sprintf("1/2 tabs  p:%s  e:edit%s  g/h/b:sections  Space:actions  Esc back  %s", mode, imageHint, scrollPct)
+	}
 	b.WriteString(styleStatusBar.Width(a.width).Render(truncate(bar, a.width)))
 
 	return b.String()
+}
+
+// detailBodyIsImage returns true if the currently viewed tab's body is a renderable image.
+func (a *App) detailBodyIsImage() bool {
+	_, data, err := a.store.Get(a.selectedID)
+	if err != nil || data == nil {
+		return false
+	}
+	var ct string
+	if a.detailTab == 0 {
+		ct = data.RequestHeaders.Get("Content-Type")
+	} else {
+		ct = data.ResponseHeaders.Get("Content-Type")
+	}
+	return isRenderableImage(ct)
 }
 
 func renderTab(label string, active bool) string {
@@ -64,7 +100,14 @@ func renderTab(label string, active bool) string {
 	return styleInactiveTab.Render(label)
 }
 
-func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int, darkBg bool, prettyJSON bool) string {
+func sectionIcon(collapsed bool) string {
+	if collapsed {
+		return "▸"
+	}
+	return "▾"
+}
+
+func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int, darkBg bool, prettyJSON bool, collapsed map[string]bool) string {
 	if meta == nil {
 		return "Flow no longer available."
 	}
@@ -72,20 +115,22 @@ func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width
 	var b strings.Builder
 
 	if tab == 0 {
-		renderRequestDetail(&b, meta, data, darkBg, prettyJSON)
+		renderRequestDetail(&b, meta, data, darkBg, prettyJSON, collapsed)
 	} else {
-		renderResponseDetail(&b, meta, data, darkBg, prettyJSON)
+		renderResponseDetail(&b, meta, data, darkBg, prettyJSON, collapsed)
 	}
 
 	return b.String()
 }
 
-func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool) {
-	b.WriteString(styleSection.Render("▸ General"))
+func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool, collapsed map[string]bool) {
+	b.WriteString(styleSection.Render(sectionIcon(collapsed["general"]) + " General"))
 	b.WriteString("\n")
-	fmt.Fprintf(b, "  Method: %s\n", meta.Method)
-	fmt.Fprintf(b, "  URL: %s://%s%s\n", meta.Scheme, meta.Host, meta.Path)
-	fmt.Fprintf(b, "  Scheme: %s\n", meta.Scheme)
+	if !collapsed["general"] {
+		fmt.Fprintf(b, "  Method: %s\n", meta.Method)
+		fmt.Fprintf(b, "  URL: %s://%s%s\n", meta.Scheme, meta.Host, meta.Path)
+		fmt.Fprintf(b, "  Scheme: %s\n", meta.Scheme)
+	}
 	b.WriteString("\n")
 
 	if data == nil {
@@ -93,29 +138,35 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 	}
 
 	if data.RequestHeaders != nil {
-		renderHeaders(b, "Request Headers", data.RequestHeaders)
+		renderHeaders(b, "Request Headers", data.RequestHeaders, collapsed["headers"])
 	}
 
 	if len(data.RequestBody) > 0 {
-		b.WriteString(styleSection.Render("▸ Body"))
+		b.WriteString(styleSection.Render(sectionIcon(collapsed["body"]) + " Body"))
 		b.WriteString("\n")
-		renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), darkBg, prettyJSON)
+		if !collapsed["body"] {
+			renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), darkBg, prettyJSON)
+		} else {
+			b.WriteString("\n")
+		}
 	}
 }
 
-func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool) {
+func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool, collapsed map[string]bool) {
 	if meta.State == store.StateInProgress {
 		b.WriteString(styleMuted.Render("Awaiting response..."))
 		b.WriteString("\n")
 		return
 	}
 
-	b.WriteString(styleSection.Render("▸ General"))
+	b.WriteString(styleSection.Render(sectionIcon(collapsed["general"]) + " General"))
 	b.WriteString("\n")
-	fmt.Fprintf(b, "  Status: %d\n", meta.StatusCode)
-	fmt.Fprintf(b, "  Content-Type: %s\n", meta.ContentType)
-	fmt.Fprintf(b, "  Duration: %s\n", formatDuration(meta.Duration))
-	fmt.Fprintf(b, "  Size: %s\n", formatSize(meta.SizeBytes))
+	if !collapsed["general"] {
+		fmt.Fprintf(b, "  Status: %d\n", meta.StatusCode)
+		fmt.Fprintf(b, "  Content-Type: %s\n", meta.ContentType)
+		fmt.Fprintf(b, "  Duration: %s\n", formatDuration(meta.Duration))
+		fmt.Fprintf(b, "  Size: %s\n", formatSize(meta.SizeBytes))
+	}
 	b.WriteString("\n")
 
 	if data == nil {
@@ -123,28 +174,33 @@ func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.
 	}
 
 	if data.ResponseHeaders != nil {
-		renderHeaders(b, "Response Headers", data.ResponseHeaders)
+		renderHeaders(b, "Response Headers", data.ResponseHeaders, collapsed["headers"])
 	}
 
 	if len(data.ResponseBody) > 0 {
-		b.WriteString(styleSection.Render("▸ Body"))
+		b.WriteString(styleSection.Render(sectionIcon(collapsed["body"]) + " Body"))
 		b.WriteString("\n")
-		renderBody(b, data.ResponseBody, meta.ContentType, darkBg, prettyJSON)
+		if !collapsed["body"] {
+			renderBody(b, data.ResponseBody, meta.ContentType, darkBg, prettyJSON)
+		} else {
+			b.WriteString("\n")
+		}
 	}
 }
 
-func renderHeaders(b *strings.Builder, title string, h map[string][]string) {
-	keys := make([]string, 0, len(h))
-	for k := range h {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	b.WriteString(styleSection.Render(fmt.Sprintf("▸ %s (%d)", title, len(h))))
+func renderHeaders(b *strings.Builder, title string, h map[string][]string, collapsed bool) {
+	b.WriteString(styleSection.Render(fmt.Sprintf("%s %s (%d)", sectionIcon(collapsed), title, len(h))))
 	b.WriteString("\n")
-	for _, k := range keys {
-		for _, v := range h[k] {
-			fmt.Fprintf(b, "  %s: %s\n", k, v)
+	if !collapsed {
+		keys := make([]string, 0, len(h))
+		for k := range h {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			for _, v := range h[k] {
+				fmt.Fprintf(b, "  %s: %s\n", k, v)
+			}
 		}
 	}
 	b.WriteString("\n")
