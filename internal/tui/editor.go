@@ -61,15 +61,19 @@ func openInEditor(body []byte, contentType string) tea.Cmd {
 	}
 
 	if _, err := f.Write(body); err != nil {
-		f.Close()
+		_ = f.Close()
 		return func() tea.Msg {
 			return editorFinishedMsg{err: fmt.Errorf("write temp file: %w", err)}
 		}
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return func() tea.Msg {
+			return editorFinishedMsg{err: fmt.Errorf("close temp file: %w", err)}
+		}
+	}
 
 	editor := resolveEditor()
-	c := exec.Command(editor, f.Name()) //nolint:gosec
+	c := exec.Command(editor, f.Name()) // #nosec G204 -- editor from $VISUAL/$EDITOR env
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})

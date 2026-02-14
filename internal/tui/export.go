@@ -69,7 +69,7 @@ func (a *App) doExportHAR() (tea.Model, tea.Cmd) {
 		return a, tea.Printf("HAR export failed: %v", err)
 	}
 
-	if writeErr := os.WriteFile(filename, data, 0o644); writeErr != nil {
+	if writeErr := os.WriteFile(filename, data, 0o600); writeErr != nil {
 		return a, tea.Printf("HAR write failed: %v", writeErr)
 	}
 

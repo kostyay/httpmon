@@ -1,4 +1,4 @@
-.PHONY: all fmt lint test e2e build clean security
+.PHONY: all fmt lint test e2e build clean security release
 
 all: lint test build
 
@@ -19,6 +19,9 @@ build:
 
 clean:
 	rm -f httpmon coverage.out
+
+release: lint test security
+	goreleaser release --snapshot --clean
 
 security:
 	@echo "==> gosec"

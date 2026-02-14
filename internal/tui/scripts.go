@@ -77,7 +77,7 @@ func (a *App) updateScripts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // openScriptInEditor opens a script file in the user's editor.
 func (a *App) openScriptInEditor(path string) tea.Cmd {
 	editor := resolveEditor()
-	c := exec.Command(editor, path) //nolint:gosec
+	c := exec.Command(editor, path) // #nosec G204 -- editor from $VISUAL/$EDITOR env
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return scriptEditorFinishedMsg{path: path}
 	})

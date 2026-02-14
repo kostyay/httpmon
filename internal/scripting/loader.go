@@ -30,7 +30,7 @@ func LoadDir(dir string) (scripts []ScriptFile, errs []ScriptFile) {
 		}
 
 		path := filepath.Join(dir, e.Name())
-		data, readErr := os.ReadFile(path)
+		data, readErr := os.ReadFile(path) // #nosec G304 -- path built from os.ReadDir entries within known dir
 		if readErr != nil {
 			errs = append(errs, ScriptFile{
 				Meta:     &ScriptMeta{Name: filenameToName(e.Name())},
@@ -65,7 +65,7 @@ func LoadDir(dir string) (scripts []ScriptFile, errs []ScriptFile) {
 // the file. If no "// enabled:" line exists, one is inserted before the
 // closing "// ---" delimiter.
 func ToggleEnabled(path string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- user-selected script path from known scripts dir
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
@@ -111,7 +111,7 @@ func ToggleEnabled(path string) error {
 		}
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
 const scriptTemplate = `// ---
@@ -151,7 +151,7 @@ func CreateNewScript(dir string) (string, error) {
 	defer f.Close()
 
 	if _, err := f.WriteString(NewScriptTemplate()); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("write template: %w", err)
 	}
 
@@ -165,7 +165,7 @@ func DeleteScript(path string) error {
 
 // EnsureScriptDir creates the directory (and parents) if it doesn't exist.
 func EnsureScriptDir(dir string) error {
-	return os.MkdirAll(dir, 0o755)
+	return os.MkdirAll(dir, 0o750)
 }
 
 // filenameToName strips the .js extension from a filename.
