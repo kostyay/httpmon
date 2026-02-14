@@ -23,9 +23,9 @@ func TestRepeatKeyInDetail(t *testing.T) {
 func TestRepeatPreservesMethod(t *testing.T) {
 	m := seedMock(1)
 	m.metas[0].Method = "POST"
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg{})
+	app.Update(TickMsg{})
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	req := app.buildRepeatRequest()

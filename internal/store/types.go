@@ -30,6 +30,7 @@ type FlowMeta struct {
 	State       FlowState
 	ContentType string
 	Scheme      string
+	MapLocal    bool
 }
 
 // FlowData holds the full request/response headers and bodies.

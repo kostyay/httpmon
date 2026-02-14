@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"time"
+
+	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -24,4 +27,19 @@ type ScriptManager interface {
 	CreateNew() (string, error)
 	ScriptDir() string
 	Reload()
+}
+
+// ThrottleController manages bandwidth throttling at runtime.
+type ThrottleController interface {
+	SetThrottle(bps int64, latency time.Duration)
+	GetThrottleBPS() int64
+	GetThrottleLatency() time.Duration
+}
+
+// MapLocalManager exposes map-local rule management to the TUI.
+type MapLocalManager interface {
+	Rules() []maplocal.Rule
+	AddRule(r maplocal.Rule)
+	RemoveRule(index int)
+	SaveToFile(path string) error
 }
