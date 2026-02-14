@@ -8,11 +8,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
+
+// stripView returns the view content with ANSI escape codes removed.
+// lipgloss v2 wraps individual characters in ANSI codes, making raw
+// strings.Contains unreliable for styled text.
+func stripView(app *App) string {
+	return ansi.Strip(app.viewContent())
+}
 
 // --- mock implementations ---
 
@@ -132,7 +140,7 @@ func newMockApp(n int) *App {
 }
 
 func sendKey(app *App, key string) {
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	app.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
 }
 
 // --- existing tests (using real RingBuffer) ---
@@ -143,7 +151,7 @@ func TestNavigateDown(t *testing.T) {
 		t.Errorf("initial selectedIdx = %d, want 0", app.selectedIdx)
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if app.selectedIdx != 1 {
 		t.Errorf("after j: selectedIdx = %d, want 1", app.selectedIdx)
 	}
@@ -151,9 +159,9 @@ func TestNavigateDown(t *testing.T) {
 
 func TestNavigateUp(t *testing.T) {
 	app := newTestApp(5)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	app.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	app.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	app.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	if app.selectedIdx != 1 {
 		t.Errorf("after j,j,k: selectedIdx = %d, want 1", app.selectedIdx)
 	}
@@ -161,7 +169,7 @@ func TestNavigateUp(t *testing.T) {
 
 func TestEnterDetail(t *testing.T) {
 	app := newTestApp(5)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !app.showDetail {
 		t.Error("expected showDetail=true after Enter")
 	}
@@ -169,8 +177,8 @@ func TestEnterDetail(t *testing.T) {
 
 func TestEscFromDetail(t *testing.T) {
 	app := newTestApp(5)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showDetail {
 		t.Error("expected showDetail=false after Esc")
 	}
@@ -178,7 +186,7 @@ func TestEscFromDetail(t *testing.T) {
 
 func TestListViewContainsFlows(t *testing.T) {
 	app := newTestApp(3)
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "flows") {
 		t.Error("list view should contain 'flows'")
 	}
@@ -189,8 +197,8 @@ func TestListViewContainsFlows(t *testing.T) {
 
 func TestDetailViewContainsHeaders(t *testing.T) {
 	app := newTestApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	view := app.View()
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	view := stripView(app)
 	if !strings.Contains(view, "Method:") {
 		t.Error("detail view should contain 'Method:'")
 	}
@@ -202,12 +210,12 @@ func TestDetailViewContainsHeaders(t *testing.T) {
 func TestFilterFocusBlur(t *testing.T) {
 	app := newTestApp(5)
 
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	app.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	if !app.filterInput.Focused() {
 		t.Error("filter should be focused after /")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.filterInput.Focused() {
 		t.Error("filter should be blurred after Esc")
 	}
@@ -215,9 +223,9 @@ func TestFilterFocusBlur(t *testing.T) {
 
 func TestQDoesNotQuitWhenFilterFocused(t *testing.T) {
 	app := newTestApp(5)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	app.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	if cmd != nil {
 		t.Log("cmd returned from q while filter focused (may or may not be quit)")
 	}
@@ -228,17 +236,17 @@ func TestQDoesNotQuitWhenFilterFocused(t *testing.T) {
 
 func TestNavigateBeyondBounds(t *testing.T) {
 	app := newTestApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	app.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	if app.selectedIdx != 0 {
 		t.Errorf("selectedIdx = %d, want 0 (can't go above top)", app.selectedIdx)
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	app.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
 	if app.selectedIdx != 2 {
 		t.Errorf("selectedIdx = %d, want 2 after G", app.selectedIdx)
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if app.selectedIdx != 2 {
 		t.Errorf("selectedIdx = %d, want 2 (can't go below bottom)", app.selectedIdx)
 	}
@@ -248,7 +256,7 @@ func TestNavigateBeyondBounds(t *testing.T) {
 
 func TestEmptyStore(t *testing.T) {
 	app := newMockApp(0)
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Waiting for traffic") {
 		t.Error("empty store should show 'Waiting for traffic'")
 	}
@@ -270,12 +278,12 @@ func TestFilterByHost(t *testing.T) {
 	// Focus filter, type "other", apply
 	sendKey(app, "/")
 	for _, ch := range "other" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "other.io") {
 		t.Error("filtered view should contain other.io")
 	}
@@ -300,19 +308,19 @@ func TestClearFilter(t *testing.T) {
 	// Apply filter
 	sendKey(app, "/")
 	for _, ch := range "other" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 
 	// Clear filter: open filter, clear text, enter
 	sendKey(app, "/")
 	// Select all + delete to clear
-	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU}) // clear line
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}) // clear line
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "other.io") {
 		t.Error("after clear, should contain other.io")
 	}
@@ -325,7 +333,7 @@ func TestDetailTabSwitching(t *testing.T) {
 	app := newMockApp(3)
 
 	// Enter detail
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !app.showDetail {
 		t.Fatal("expected detail view")
 	}
@@ -334,9 +342,9 @@ func TestDetailTabSwitching(t *testing.T) {
 	if app.detailTab != 0 {
 		t.Errorf("detailTab = %d, want 0", app.detailTab)
 	}
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "[Request]") {
-		t.Error("request tab should be active")
+		t.Errorf("request tab should be active, got:\n%s", view)
 	}
 
 	// Switch to response tab
@@ -344,7 +352,7 @@ func TestDetailTabSwitching(t *testing.T) {
 	if app.detailTab != 1 {
 		t.Errorf("after '2': detailTab = %d, want 1", app.detailTab)
 	}
-	view = app.View()
+	view = stripView(app)
 	if !strings.Contains(view, "[Response]") {
 		t.Error("response tab should be active after pressing 2")
 	}
@@ -360,7 +368,7 @@ func TestNextFlowInDetail(t *testing.T) {
 	app := newMockApp(5)
 
 	// Select first flow, enter detail
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	firstID := app.selectedID
 
 	// Next flow
@@ -383,7 +391,7 @@ func TestNextFlowBoundaries(t *testing.T) {
 	app := newMockApp(3)
 
 	// Enter detail on first flow
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// Try going previous at start — should stay
 	sendKey(app, "N")
@@ -440,8 +448,8 @@ func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 	}
 
 	// Enter detail and verify content
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	view := app.View()
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	view := stripView(app)
 	if !strings.Contains(view, "api.example.com") {
 		t.Error("detail should show host from real RingBuffer")
 	}
@@ -449,7 +457,7 @@ func TestRingBufferSatisfiesFlowReader(t *testing.T) {
 
 func TestPToggleRaw(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if app.detailRaw {
 		t.Error("detailRaw should default to false")
@@ -468,15 +476,15 @@ func TestPToggleRaw(t *testing.T) {
 
 func TestDetailStatusBarShowsPrettyRaw(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "p:pretty") {
 		t.Error("status bar should show p:pretty when detailRaw=false")
 	}
 
 	sendKey(app, "p")
-	view = app.View()
+	view = stripView(app)
 	if !strings.Contains(view, "p:raw") {
 		t.Error("status bar should show p:raw when detailRaw=true")
 	}
@@ -488,7 +496,7 @@ func TestStatusBarShowsCAWarning(t *testing.T) {
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "CA NOT TRUSTED") {
 		t.Error("status bar should show CA NOT TRUSTED when caTrusted=false")
 	}
@@ -496,7 +504,7 @@ func TestStatusBarShowsCAWarning(t *testing.T) {
 
 func TestStatusBarNoWarningWhenTrusted(t *testing.T) {
 	app := newMockApp(1) // caTrusted=true
-	view := app.View()
+	view := stripView(app)
 	if strings.Contains(view, "CA NOT TRUSTED") {
 		t.Error("status bar should NOT show CA NOT TRUSTED when caTrusted=true")
 	}
@@ -518,7 +526,7 @@ func TestFlatListScrollsWithCursor(t *testing.T) {
 		t.Fatalf("selectedIdx = %d, want 10", app.selectedIdx)
 	}
 
-	view := app.View()
+	view := stripView(app)
 	// The selected flow's path must appear in the rendered output.
 	// Flows are newest-first, so flow-19 is index 0, flow-9 is index 10.
 	selectedPath := app.flows[10].Path
@@ -540,7 +548,7 @@ func TestScrollUpKeepsViewportStable(t *testing.T) {
 	// Move cursor to row 10, calling View() each step (like real Bubble Tea).
 	for range 10 {
 		sendKey(app, "j")
-		app.View()
+		stripView(app)
 	}
 
 	// Before scrolling up: row 10 is selected, viewport shows rows 4-10.
@@ -553,7 +561,7 @@ func TestScrollUpKeepsViewportStable(t *testing.T) {
 		t.Fatalf("selectedIdx = %d, want 9", app.selectedIdx)
 	}
 
-	view := app.View()
+	view := stripView(app)
 	// Row 10 should still be visible (viewport didn't retract).
 	if !strings.Contains(view, bottomPath) {
 		t.Errorf("after scrolling up, row 10 (%q) should still be visible (viewport stable)\nview:\n%s", bottomPath, view)
@@ -568,16 +576,16 @@ func TestScrollUpKeepsViewportStable(t *testing.T) {
 
 func TestDetailCollapseGeneral(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Method:") {
 		t.Fatal("General section should be visible by default")
 	}
 
 	// Collapse general
 	sendKey(app, "g")
-	view = app.View()
+	view = stripView(app)
 	if strings.Contains(view, "Method:") {
 		t.Error("General section should be hidden after pressing g")
 	}
@@ -587,7 +595,7 @@ func TestDetailCollapseGeneral(t *testing.T) {
 
 	// Expand again
 	sendKey(app, "g")
-	view = app.View()
+	view = stripView(app)
 	if !strings.Contains(view, "Method:") {
 		t.Error("General section should be visible after second g")
 	}
@@ -598,21 +606,21 @@ func TestDetailCollapseGeneral(t *testing.T) {
 
 func TestDetailCollapseHeaders(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Accept:") {
 		t.Fatal("Headers should be visible by default")
 	}
 
 	sendKey(app, "h")
-	view = app.View()
+	view = stripView(app)
 	if strings.Contains(view, "Accept:") {
 		t.Error("Headers should be hidden after pressing h")
 	}
 
 	sendKey(app, "h")
-	view = app.View()
+	view = stripView(app)
 	if !strings.Contains(view, "Accept:") {
 		t.Error("Headers should be visible after second h")
 	}
@@ -620,21 +628,21 @@ func TestDetailCollapseHeaders(t *testing.T) {
 
 func TestDetailCollapseBody(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, `"q"`) {
 		t.Fatal("Body content should be visible by default")
 	}
 
 	sendKey(app, "b")
-	view = app.View()
+	view = stripView(app)
 	if strings.Contains(view, `"q"`) {
 		t.Error("Body content should be hidden after pressing b")
 	}
 
 	sendKey(app, "b")
-	view = app.View()
+	view = stripView(app)
 	if !strings.Contains(view, `"q"`) {
 		t.Error("Body content should be visible after second b")
 	}
@@ -670,7 +678,7 @@ func TestHelpEscDismisses(t *testing.T) {
 		t.Fatal("showHelp should be true after ?")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showHelp {
 		t.Error("Esc should dismiss help overlay")
 	}
@@ -680,7 +688,7 @@ func TestHelpContent(t *testing.T) {
 	app := newMockApp(3)
 	sendKey(app, "?")
 
-	view := app.View()
+	view := stripView(app)
 	// Should contain key groups.
 	for _, expect := range []string{"Navigation", "Filter", "Detail View", "?", "Esc"} {
 		if !strings.Contains(view, expect) {
@@ -711,7 +719,7 @@ func TestHelpDoesNotDisruptState(t *testing.T) {
 
 func TestHelpInDetailView(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 	if !app.showDetail {
 		t.Fatal("should be in detail view")
 	}
@@ -722,7 +730,7 @@ func TestHelpInDetailView(t *testing.T) {
 	}
 
 	// Esc should dismiss help but not exit detail.
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showHelp {
 		t.Error("Esc should dismiss help")
 	}
@@ -735,7 +743,7 @@ func TestHelpInDetailView(t *testing.T) {
 
 func TestSearchFindsText(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 
 	// Press / to open search
 	sendKey(app, "/")
@@ -745,7 +753,7 @@ func TestSearchFindsText(t *testing.T) {
 
 	// Type search term
 	for _, ch := range "test" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 
 	if app.searchMatchCount == 0 {
@@ -755,11 +763,11 @@ func TestSearchFindsText(t *testing.T) {
 
 func TestSearchNoMatch(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sendKey(app, "/")
 	for _, ch := range "zzznomatch" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 
 	if app.searchMatchCount != 0 {
@@ -769,12 +777,12 @@ func TestSearchNoMatch(t *testing.T) {
 
 func TestSearchNavigation(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sendKey(app, "/")
 	// The body has `{"q":"test"}` — search for common char.
 	for _, ch := range ":" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 
 	if app.searchMatchCount < 2 {
@@ -782,7 +790,7 @@ func TestSearchNavigation(t *testing.T) {
 	}
 
 	// Commit search (Enter blurs input, n/N now navigate).
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	initial := app.searchMatchIdx
 	sendKey(app, "n")
@@ -798,14 +806,14 @@ func TestSearchNavigation(t *testing.T) {
 
 func TestSearchEscClears(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sendKey(app, "/")
 	for _, ch := range "test" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.detailSearch {
 		t.Error("Esc should exit search mode")
 	}
@@ -816,13 +824,13 @@ func TestSearchEscClears(t *testing.T) {
 
 func TestSearchEscInDetailStaysInDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sendKey(app, "/")
 	for _, ch := range "test" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	if !app.showDetail {
 		t.Error("Esc from search should stay in detail view")
@@ -831,14 +839,14 @@ func TestSearchEscInDetailStaysInDetail(t *testing.T) {
 
 func TestSearchStatusBar(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sendKey(app, "/")
 	for _, ch := range "test" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "matches") {
 		t.Error("status bar should show match count during search")
 	}
@@ -870,7 +878,7 @@ func TestExportModalEscCancels(t *testing.T) {
 		t.Fatal("modal should be open")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showExport {
 		t.Error("Esc should dismiss export modal")
 	}
@@ -884,7 +892,7 @@ func TestExportModalEnterExports(t *testing.T) {
 	tmp := t.TempDir() + "/test-export.har"
 	app.exportInput.SetValue(tmp)
 
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if app.showExport {
 		t.Error("Enter should dismiss export modal")
 	}
@@ -901,7 +909,7 @@ func TestExportModalSingleFlow(t *testing.T) {
 	app := newMockApp(3)
 
 	// Enter detail, press x.
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	sendKey(app, "x")
 	if !app.showExport {
 		t.Fatal("x in detail should open export modal")
@@ -915,7 +923,7 @@ func TestExportModalViewContent(t *testing.T) {
 	app := newMockApp(3)
 
 	sendKey(app, "x")
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Export HAR") {
 		t.Error("export view should contain header")
 	}
@@ -990,7 +998,7 @@ func TestDiffEscReturns(t *testing.T) {
 		t.Fatal("should be in diff view")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showDiff {
 		t.Error("Esc should exit diff view")
 	}
@@ -1001,7 +1009,7 @@ func TestUpdateDetailContentError(t *testing.T) {
 	app.showDetail = true
 	app.selectedID = "nonexistent"
 	app.detailReady = true
-	app.detailVP = viewport.New(120, 37)
+	app.detailVP = viewport.New(viewport.WithWidth(120), viewport.WithHeight(37))
 	app.updateDetailContent()
 
 	content := app.detailVP.View()
@@ -1025,9 +1033,9 @@ func selectMenuItem(t *testing.T, app *App, label string) {
 		t.Fatalf("menu item %q not found", label)
 	}
 	for range idx {
-		app.updateMenu(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		app.updateMenu(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
-	app.updateMenu(tea.KeyMsg{Type: tea.KeyEnter})
+	app.updateMenu(tea.KeyPressMsg{Code: tea.KeyEnter})
 }
 
 func TestDispatchMenuFromList(t *testing.T) {
@@ -1049,7 +1057,7 @@ func TestDispatchMenuFromList(t *testing.T) {
 
 func TestDispatchMenuFromDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 
 	sendKey(app, " ")
 	if !app.showMenu {

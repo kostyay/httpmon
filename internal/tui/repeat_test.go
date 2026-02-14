@@ -3,14 +3,14 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestRepeatKeyInDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	// cmd should be non-nil (fire-and-forget goroutine).
 	if cmd == nil {
 		t.Error("r in detail should return a non-nil cmd")
@@ -26,7 +26,7 @@ func TestRepeatPreservesMethod(t *testing.T) {
 	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(tickMsg{})
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	req := app.buildRepeatRequest()
 	if req == nil {
@@ -39,7 +39,7 @@ func TestRepeatPreservesMethod(t *testing.T) {
 
 func TestRepeatPreservesURL(t *testing.T) {
 	app := newMockApp(1)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	req := app.buildRepeatRequest()
 	if req == nil {
@@ -52,7 +52,7 @@ func TestRepeatPreservesURL(t *testing.T) {
 
 func TestRepeatPreservesHeaders(t *testing.T) {
 	app := newMockApp(1)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	req := app.buildRepeatRequest()
 	if req == nil {

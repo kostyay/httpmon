@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestComposeScreen(t *testing.T) {
@@ -14,7 +14,7 @@ func TestComposeScreen(t *testing.T) {
 		t.Fatal("C should open compose screen")
 	}
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Compose") {
 		t.Error("compose view should show 'Compose'")
 	}
@@ -30,7 +30,7 @@ func TestComposeEscCancels(t *testing.T) {
 		t.Fatal("should be in compose")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showCompose {
 		t.Error("Esc should cancel compose")
 	}
@@ -46,7 +46,7 @@ func TestComposeMethodCycle(t *testing.T) {
 	}
 
 	// Tab to cycle method.
-	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if app.composeMethod == "GET" {
 		t.Error("Tab should cycle method away from GET")
 	}
@@ -61,7 +61,7 @@ func TestComposeMethodFullCycle(t *testing.T) {
 		if app.composeMethod != want {
 			t.Errorf("step %d: method = %q, want %q", i, app.composeMethod, want)
 		}
-		app.updateCompose(tea.KeyMsg{Type: tea.KeyTab})
+		app.updateCompose(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 }
 
@@ -73,23 +73,23 @@ func TestComposeFocusCycle(t *testing.T) {
 		t.Fatalf("initial focus = %d, want 0", app.composeFocus)
 	}
 
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	app.updateCompose(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if app.composeFocus != 1 {
 		t.Errorf("after Ctrl+J: focus = %d, want 1", app.composeFocus)
 	}
 
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	app.updateCompose(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if app.composeFocus != 2 {
 		t.Errorf("after 2x Ctrl+J: focus = %d, want 2", app.composeFocus)
 	}
 
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	app.updateCompose(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if app.composeFocus != 0 {
 		t.Errorf("after 3x Ctrl+J: focus = %d, want 0 (wrap)", app.composeFocus)
 	}
 
 	// Ctrl+K goes backward.
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlK})
+	app.updateCompose(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	if app.composeFocus != 2 {
 		t.Errorf("after Ctrl+K from 0: focus = %d, want 2", app.composeFocus)
 	}
@@ -107,7 +107,7 @@ func TestComposeFocusFieldCorrect(t *testing.T) {
 		t.Error("focus 0: headers should NOT be focused")
 	}
 
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	app.updateCompose(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if app.composeURL.Focused() {
 		t.Error("focus 1: URL should NOT be focused")
 	}
@@ -115,7 +115,7 @@ func TestComposeFocusFieldCorrect(t *testing.T) {
 		t.Error("focus 1: headers should be focused")
 	}
 
-	app.updateCompose(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	app.updateCompose(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if !app.composeBody.Focused() {
 		t.Error("focus 2: body should be focused")
 	}

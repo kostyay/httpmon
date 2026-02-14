@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
@@ -83,7 +83,7 @@ func main() {
 	caTrusted := certutil.IsInstalled(p.CACertPath())
 	mgr := scripting.NewManager(engine, scriptsDir)
 	app := tui.NewApp(s, p, caTrusted, mgr)
-	prog := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	prog := tea.NewProgram(app)
 	if _, err := prog.Run(); err != nil {
 		fatal("TUI error: %v", err)
 	}

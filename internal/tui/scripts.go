@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // initScripts prepares the scripts modal.
@@ -21,7 +21,7 @@ func (a *App) initScripts() {
 }
 
 // updateScripts handles key events in the scripts modal.
-func (a *App) updateScripts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateScripts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if a.scriptsConfirmDelete {
 		switch msg.String() {
 		case "y", "Y":
@@ -51,7 +51,7 @@ func (a *App) updateScripts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.scriptsCursor > 0 {
 			a.scriptsCursor--
 		}
-	case " ":
+	case "space":
 		if a.scriptsCursor < len(a.scriptsList) {
 			_ = a.scripts.Toggle(a.scriptsList[a.scriptsCursor].FilePath)
 			a.scriptsList = a.scripts.Scripts()
@@ -148,7 +148,5 @@ func (a *App) viewScripts() string {
 		a.width, a.height,
 		lipgloss.Center, lipgloss.Center,
 		popup,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.NoColor{}),
 	)
 }
