@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 var composeMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -33,7 +33,7 @@ func (a *App) initCompose() {
 	a.composeBody.CharLimit = 4096
 }
 
-func (a *App) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		a.showCompose = false

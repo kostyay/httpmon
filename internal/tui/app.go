@@ -5,10 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"os"
+
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/kostyay/httpmon/internal/filter"
 	"github.com/kostyay/httpmon/internal/scripting"
@@ -139,8 +141,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 		if a.showDetail {
-			a.detailVP.Width = a.width
-			a.detailVP.Height = a.height - 3 // header + tab + status
+			a.detailVP.SetWidth(a.width)
+			a.detailVP.SetHeight(a.height - 3) // header + tab + status
 		}
 		return a, nil
 
@@ -158,7 +160,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Help overlay intercepts all keys.
 		if a.showHelp {
 			switch msg.String() {
@@ -204,32 +206,35 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) View() string {
-	if !a.ready {
+// viewContent returns the rendered string for the current screen.
+func (a *App) viewContent() string {
+	switch {
+	case !a.ready:
 		return "Loading..."
-	}
-	if a.showDiff {
+	case a.showDiff:
 		return a.viewDiff()
-	}
-	if a.showHelp {
+	case a.showHelp:
 		return a.viewHelp()
-	}
-	if a.showScripts {
+	case a.showScripts:
 		return a.viewScripts()
-	}
-	if a.showMenu {
+	case a.showMenu:
 		return a.viewMenu()
-	}
-	if a.showExport {
+	case a.showExport:
 		return a.viewExport()
-	}
-	if a.showCompose {
+	case a.showCompose:
 		return a.viewCompose()
-	}
-	if a.showDetail {
+	case a.showDetail:
 		return a.viewDetail()
+	default:
+		return a.viewList()
 	}
-	return a.viewList()
+}
+
+func (a *App) View() tea.View {
+	v := tea.NewView(a.viewContent())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 func (a *App) refreshFlows() {
@@ -268,7 +273,7 @@ func (a *App) applyFilter() {
 	a.listOffset = 0
 }
 
-func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Filter input takes priority regardless of mode.
 	if a.filterInput.Focused() {
 		switch msg.String() {
@@ -293,14 +298,15 @@ func (a *App) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return a, tea.Quit
 	case "/":
-		a.filterInput.Focus()
-		return a, a.filterInput.Cursor.BlinkCmd()
+		cmd := a.filterInput.Focus()
+		return a, cmd
 	case "C":
 		a.initCompose()
-		return a, a.composeURL.Cursor.BlinkCmd()
+		cmd := a.composeURL.Focus()
+		return a, cmd
 	case "d":
 		return a.handleDiffMark()
-	case " ":
+	case "space":
 		a.initMenu()
 		return a, nil
 	case "S":
@@ -341,7 +347,7 @@ func (a *App) pageSize() int {
 
 // handleListNav handles cursor movement keys shared across all list modes.
 // Returns true if the key was consumed.
-func (a *App) handleListNav(msg tea.KeyMsg) bool {
+func (a *App) handleListNav(msg tea.KeyPressMsg) bool {
 	n := a.visibleLen()
 	switch msg.String() {
 	case "j", "down":
@@ -377,7 +383,7 @@ func (a *App) openFlowDetail(id store.FlowID) {
 	a.initDetailViewport()
 }
 
-func (a *App) updateFlatList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateFlatList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "t":
 		a.listMode = modeTree
@@ -394,7 +400,7 @@ func (a *App) updateFlatList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) updateTreeList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateTreeList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "t":
 		a.listMode = modeFlat
@@ -442,7 +448,7 @@ func (a *App) updateTreeList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) updateFocusList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateFocusList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		a.listMode = modeTree
@@ -473,13 +479,13 @@ func (a *App) jumpToParentHost(host string) {
 	}
 }
 
-func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Search input mode.
 	if a.detailSearch {
 		return a.updateDetailSearch(msg)
 	}
 
-	if msg.String() == " " {
+	if msg.String() == "space" {
 		a.initMenu()
 		return a, nil
 	}
@@ -500,11 +506,11 @@ func (a *App) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		a.detailSearch = true
 		a.searchInput.SetValue("")
-		a.searchInput.Focus()
+		cmd := a.searchInput.Focus()
 		a.searchQuery = ""
 		a.searchMatchCount = 0
 		a.searchMatchIdx = 0
-		return a, a.searchInput.Cursor.BlinkCmd()
+		return a, cmd
 	case "1", "left":
 		a.detailTab = 0
 		a.detailImagePreview = false
@@ -565,7 +571,7 @@ func (a *App) copyCurl() (tea.Model, tea.Cmd) {
 	return a, tea.Printf("%s%s", osc52Sequence(curl), "Copied to clipboard")
 }
 
-func (a *App) updateDetailSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateDetailSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		a.detailSearch = false
@@ -657,8 +663,8 @@ func (a *App) editBody() (tea.Model, tea.Cmd) {
 }
 
 func (a *App) initDetailViewport() {
-	a.detailVP = viewport.New(a.width, a.height-3)
-	a.detailVP.YPosition = 0
+	a.detailVP = viewport.New(viewport.WithWidth(a.width), viewport.WithHeight(a.height-3))
+	a.detailVP.SetYOffset(0)
 	a.detailReady = true
 	a.updateDetailContent()
 }
@@ -703,7 +709,7 @@ func (a *App) updateDetailContent() {
 		a.detailImagePreview = false
 	}
 
-	darkBg := lipgloss.HasDarkBackground()
+	darkBg := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw, a.detailCollapsed))
 }
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -27,7 +27,7 @@ func TestMenuOpenFromList(t *testing.T) {
 
 func TestMenuOpenFromDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 
 	sendKey(app, " ")
 	if !app.showMenu {
@@ -48,7 +48,7 @@ func TestMenuEscDismisses(t *testing.T) {
 	if !app.showMenu {
 		t.Fatal("menu should be open")
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showMenu {
 		t.Error("Esc should dismiss menu")
 	}
@@ -108,7 +108,7 @@ func TestMenuEnterDispatches(t *testing.T) {
 	for range idx {
 		sendKey(app, "j")
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if app.showMenu {
 		t.Error("Enter should close menu")
@@ -129,7 +129,7 @@ func TestMenuOpenDetailDispatches(t *testing.T) {
 	for range idx {
 		sendKey(app, "j")
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if app.showMenu {
 		t.Error("Enter should close menu")
@@ -178,7 +178,7 @@ func TestMenuDetailImageItem(t *testing.T) {
 	app.Update(tickMsg{})
 
 	// Enter detail on response tab (where image body is).
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	sendKey(app, "2") // switch to response tab
 
 	sendKey(app, " ")
@@ -203,7 +203,7 @@ func TestMenuNoOpenWhenFilterFocused(t *testing.T) {
 
 func TestMenuNoOpenDuringSearch(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 
 	sendKey(app, "/") // start detail search
 	if !app.detailSearch {
@@ -219,7 +219,7 @@ func TestMenuViewContent(t *testing.T) {
 	app := newMockApp(3)
 	sendKey(app, " ")
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Actions") {
 		t.Error("menu view should contain 'Actions' header")
 	}

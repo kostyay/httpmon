@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type menuItem struct {
@@ -13,12 +13,13 @@ type menuItem struct {
 	key   string // shortcut key, also dispatched on Enter
 }
 
-// toKeyMsg converts the shortcut key into the equivalent tea.KeyMsg.
-func (m menuItem) toKeyMsg() tea.KeyMsg {
+// toKeyMsg converts the shortcut key into the equivalent tea.KeyPressMsg.
+func (m menuItem) toKeyMsg() tea.KeyPressMsg {
 	if m.key == "enter" {
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	}
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(m.key)}
+	r := []rune(m.key)
+	return tea.KeyPressMsg{Code: r[0], Text: m.key}
 }
 
 // displayKey returns a human-readable label for the shortcut (e.g. "Enter" instead of "enter").
@@ -74,9 +75,9 @@ func (a *App) detailMenuItems() []menuItem {
 	return items
 }
 
-func (a *App) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", " ":
+	case "esc", "space":
 		a.showMenu = false
 		return a, nil
 	case "j", "down":
@@ -133,7 +134,5 @@ func (a *App) viewMenu() string {
 		a.width, a.height,
 		lipgloss.Center, lipgloss.Center,
 		popup,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.NoColor{}),
 	)
 }

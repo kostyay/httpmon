@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestViewDiffContent(t *testing.T) {
@@ -12,7 +14,7 @@ func TestViewDiffContent(t *testing.T) {
 	app.width = 80
 	app.height = 30
 
-	view := app.viewDiff()
+	view := ansi.Strip(app.viewDiff())
 	if !strings.Contains(view, "Flow Diff") {
 		t.Error("diff view should contain 'Flow Diff' header")
 	}

@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kostyay/httpmon/internal/scripting"
 )
@@ -69,23 +70,23 @@ func TestScriptsNavigation(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if app.scriptsCursor != 1 {
 		t.Errorf("after j: cursor = %d, want 1", app.scriptsCursor)
 	}
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if app.scriptsCursor != 2 {
 		t.Errorf("after 2j: cursor = %d, want 2", app.scriptsCursor)
 	}
 
 	// Clamp at end.
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if app.scriptsCursor != 2 {
 		t.Errorf("after 3j: cursor = %d, want 2 (clamped)", app.scriptsCursor)
 	}
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	if app.scriptsCursor != 1 {
 		t.Errorf("after k: cursor = %d, want 1", app.scriptsCursor)
 	}
@@ -96,7 +97,7 @@ func TestScriptsToggle(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	app.updateScripts(tea.KeyPressMsg{Code: ' ', Text: " "})
 	if len(sm.toggled) != 1 {
 		t.Fatalf("toggled count = %d, want 1", len(sm.toggled))
 	}
@@ -111,13 +112,13 @@ func TestScriptsDelete(t *testing.T) {
 	sendKey(app, "S")
 
 	// Press d → confirm prompt.
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	if !app.scriptsConfirmDelete {
 		t.Fatal("d should set confirmDelete")
 	}
 
 	// Press y → delete.
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if app.scriptsConfirmDelete {
 		t.Error("confirmDelete should be cleared after y")
 	}
@@ -134,8 +135,8 @@ func TestScriptsDeleteCancel(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	app.updateScripts(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	if app.scriptsConfirmDelete {
 		t.Error("n should cancel confirmDelete")
 	}
@@ -149,7 +150,7 @@ func TestScriptsEscCloses(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.showScripts {
 		t.Error("Esc should close scripts modal")
 	}
@@ -163,7 +164,7 @@ func TestScriptsSKeyCloses(t *testing.T) {
 		t.Fatal("should be open")
 	}
 
-	app.updateScripts(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	app.updateScripts(tea.KeyPressMsg{Code: 'S', Text: "S"})
 	if app.showScripts {
 		t.Error("S should close scripts modal")
 	}
@@ -174,7 +175,7 @@ func TestViewScriptsEmpty(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	view := app.viewScripts()
+	view := ansi.Strip(app.viewScripts())
 	if !strings.Contains(view, "No scripts found") {
 		t.Error("empty scripts should show 'No scripts found'")
 	}
@@ -188,7 +189,7 @@ func TestViewScriptsPopulated(t *testing.T) {
 	app := newAppWithScripts(3, sm)
 	sendKey(app, "S")
 
-	view := app.viewScripts()
+	view := ansi.Strip(app.viewScripts())
 	if !strings.Contains(view, "block-ads") {
 		t.Error("scripts view should contain script name")
 	}

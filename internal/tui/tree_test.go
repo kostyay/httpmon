@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -262,7 +262,7 @@ func TestFocusEscBackToTree(t *testing.T) {
 	sendKey(app, "t")
 	sendKey(app, "f")
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if app.listMode != modeTree {
 		t.Errorf("mode after Esc = %d, want tree", app.listMode)
 	}
@@ -284,7 +284,7 @@ func TestTreeEnterOnHost(t *testing.T) {
 	sendKey(app, "t")
 
 	// Enter on collapsed host should expand
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 
 	host := app.treeRows[0].Host
@@ -294,7 +294,7 @@ func TestTreeEnterOnHost(t *testing.T) {
 
 	// Enter again should collapse
 	app.selectedIdx = 0
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 	if app.hostExpanded[host] {
 		t.Error("Enter on expanded host should collapse it")
@@ -310,7 +310,7 @@ func TestTreeEnterOnFlow(t *testing.T) {
 	app.Update(tickMsg(time.Now()))
 	sendKey(app, "j") // move to first flow
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !app.showDetail {
 		t.Error("Enter on flow should open detail")
 	}
@@ -325,7 +325,7 @@ func TestFocusEnterOnFlow(t *testing.T) {
 		t.Fatal("focus should have rows")
 	}
 
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !app.showDetail {
 		t.Error("Enter in focus mode should open detail")
 	}
@@ -338,7 +338,7 @@ func TestTreeViewContainsHostNodes(t *testing.T) {
 	sendKey(app, "t")
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "api.example.com") {
 		t.Error("tree view should contain api.example.com")
 	}
@@ -356,7 +356,7 @@ func TestTreeViewExpandedShowsFlows(t *testing.T) {
 	sendKey(app, "l") // expand
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "▾") {
 		t.Error("expanded host should show ▾")
 	}
@@ -368,7 +368,7 @@ func TestFocusViewShowsHostHeader(t *testing.T) {
 	sendKey(app, "f")
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Esc to unfocus") {
 		t.Error("focus view should show unfocus hint")
 	}
@@ -378,7 +378,7 @@ func TestStatusBarTreeMode(t *testing.T) {
 	app := newMultiHostApp()
 	sendKey(app, "t")
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "t:flat") {
 		t.Error("tree mode status should show t:flat")
 	}
@@ -392,7 +392,7 @@ func TestStatusBarFocusMode(t *testing.T) {
 	sendKey(app, "t")
 	sendKey(app, "f")
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Esc:unfocus") {
 		t.Error("focus mode status should show Esc:unfocus")
 	}
@@ -400,7 +400,7 @@ func TestStatusBarFocusMode(t *testing.T) {
 
 func TestStatusBarFlatMode(t *testing.T) {
 	app := newMultiHostApp()
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "t:tree") {
 		t.Error("flat mode status should show t:tree")
 	}
@@ -413,7 +413,7 @@ func TestTreeEmptyStore(t *testing.T) {
 	sendKey(app, "t")
 	app.Update(tickMsg(time.Now()))
 
-	view := app.View()
+	view := stripView(app)
 	if !strings.Contains(view, "Waiting for traffic") {
 		t.Error("empty tree should show waiting message")
 	}
@@ -472,9 +472,9 @@ func TestTreeFilterIntegration(t *testing.T) {
 	// Filter to only api.example.com
 	sendKey(app, "/")
 	for _, ch := range "api" {
-		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		app.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 	}
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	app.Update(tickMsg(time.Now()))
 
 	// Should only have api.example.com host

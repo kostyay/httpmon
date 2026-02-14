@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -72,14 +72,14 @@ func TestOpenInEditorNonEmpty(t *testing.T) {
 
 func TestEditKeyInDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 	app.detailTab = 1                          // response tab
 
 	if !app.showDetail {
 		t.Fatal("expected showDetail=true")
 	}
 
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	if cmd == nil {
 		t.Error("pressing e on response tab with body should return non-nil cmd")
 	}
@@ -98,9 +98,9 @@ func TestEditKeyEmptyBody(t *testing.T) {
 	app := NewApp(m, nil, true, nil)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	app.Update(tickMsg(time.Now()))
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	if cmd != nil {
 		t.Error("pressing e with empty body should return nil cmd")
 	}

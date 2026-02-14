@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestFormatCurlGET(t *testing.T) {
@@ -81,7 +81,7 @@ func TestOSC52Write(t *testing.T) {
 
 func TestCurlKeyInDetail(t *testing.T) {
 	app := newMockApp(3)
-	app.Update(tea.KeyMsg{Type: tea.KeyEnter}) // enter detail
+	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
 	if !app.showDetail {
 		t.Fatal("should be in detail view")
 	}

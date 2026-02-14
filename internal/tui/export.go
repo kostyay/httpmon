@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/har"
 	"github.com/kostyay/httpmon/internal/store"
@@ -23,10 +23,10 @@ func (a *App) initExport(single bool) tea.Cmd {
 	a.exportInput.SetValue(fmt.Sprintf("httpmon-%s.har", time.Now().Format("20060102-150405")))
 	a.exportInput.Focus()
 
-	return a.exportInput.Cursor.BlinkCmd()
+	return a.exportInput.Focus()
 }
 
-func (a *App) updateExport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) updateExport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		a.showExport = false

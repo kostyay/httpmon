@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // buildRepeatRequest constructs an *http.Request from the currently selected flow.
