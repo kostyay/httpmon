@@ -3,16 +3,13 @@ package proxy
 import (
 	"io"
 	"log"
-	"mime"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"sync"
 	"time"
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/throttle"
@@ -21,9 +18,8 @@ import (
 // interceptor is a go-mitmproxy addon that captures flows into a RingBuffer.
 type interceptor struct {
 	mp.BaseAddon
-	store    *store.RingBuffer
-	engine   *scripting.Engine  // may be nil
-	mapLocal *maplocal.MapLocal // may be nil
+	store  *store.RingBuffer
+	engine *scripting.Engine // may be nil
 
 	mu              sync.RWMutex
 	throttleBPS     int64
@@ -33,7 +29,6 @@ type interceptor struct {
 type interceptorConfig struct {
 	Store           *store.RingBuffer
 	Engine          *scripting.Engine
-	MapLocal        *maplocal.MapLocal
 	ThrottleBPS     int64
 	ThrottleLatency time.Duration
 }
@@ -42,7 +37,6 @@ func newInterceptor(cfg interceptorConfig) *interceptor {
 	return &interceptor{
 		store:           cfg.Store,
 		engine:          cfg.Engine,
-		mapLocal:        cfg.MapLocal,
 		throttleBPS:     cfg.ThrottleBPS,
 		throttleLatency: cfg.ThrottleLatency,
 	}
@@ -112,38 +106,6 @@ func (i *interceptor) Request(f *mp.Flow) {
 		RequestBody:    body,
 	})
 
-	// MapLocal: serve local file instead of forwarding to upstream.
-	if i.mapLocal != nil {
-		host := f.Request.URL.Hostname()
-		path := f.Request.URL.RequestURI()
-		if respBody, status, matched := i.mapLocal.Match(host, path); matched {
-			ct := mime.TypeByExtension(filepath.Ext(path))
-			if ct == "" {
-				ct = http.DetectContentType(respBody)
-			}
-			f.Response = &mp.Response{
-				StatusCode: status,
-				Header:     http.Header{"Content-Type": {ct}},
-				Body:       respBody,
-			}
-			i.store.SetData(id, &store.FlowData{
-				RequestHeaders:  f.Request.Header.Clone(),
-				RequestBody:     body,
-				ResponseHeaders: f.Response.Header.Clone(),
-				ResponseBody:    respBody,
-			})
-			i.store.Update(id, func(m *store.FlowMeta) {
-				m.MapLocal = true
-				m.StatusCode = status
-				m.ContentType = ct
-				m.SizeBytes = int64(len(respBody))
-				m.Duration = time.Since(m.StartedAt)
-				m.State = store.StateCompleted
-			})
-			return
-		}
-	}
-
 	// Run scripts on request (before forwarding to upstream).
 	if i.engine != nil {
 		reqURL := f.Request.URL.String()
@@ -152,8 +114,15 @@ func (i *interceptor) Request(f *mp.Flow) {
 			URL:     reqURL,
 			Headers: f.Request.Header.Clone(),
 			Body:    f.Request.Body,
+			Meta:    store.FlowMeta{ID: id, Method: f.Request.Method, Host: f.Request.URL.Hostname()},
 		}
 		i.engine.RunOnRequest(ctx)
+
+		if ctx.Responded {
+			i.buildSyntheticResponse(f, id, body, ctx.ResponseStatus,
+				ctx.ResponseHeaders, ctx.ResponseBody)
+			return
+		}
 
 		if ctx.Blocked {
 			f.Response = &mp.Response{
@@ -235,13 +204,25 @@ func (i *interceptor) Response(f *mp.Flow) {
 			Status:  f.Response.StatusCode,
 			Headers: f.Response.Header.Clone(),
 			Body:    respBody,
+			Meta:    store.FlowMeta{ID: id, Method: f.Request.Method, Host: f.Request.URL.Hostname()},
 		}
 		i.engine.RunOnResponse(ctx, reqURL)
 
-		f.Response.StatusCode = ctx.Status
-		f.Response.Header = ctx.Headers
-		respBody = ctx.Body
-		f.Response.Body = ctx.Body
+		if ctx.Responded {
+			f.Response.StatusCode = ctx.ResponseStatus
+			if ctx.ResponseHeaders != nil {
+				for k, v := range ctx.ResponseHeaders {
+					f.Response.Header.Set(k, v)
+				}
+			}
+			respBody = ctx.ResponseBody
+			f.Response.Body = ctx.ResponseBody
+		} else {
+			f.Response.StatusCode = ctx.Status
+			f.Response.Header = ctx.Headers
+			respBody = ctx.Body
+			f.Response.Body = ctx.Body
+		}
 	}
 
 	// Merge response data with existing request data.
@@ -260,6 +241,35 @@ func (i *interceptor) Response(f *mp.Flow) {
 		m.StatusCode = f.Response.StatusCode
 		m.ContentType = f.Response.Header.Get("Content-Type")
 		m.SizeBytes = int64(len(respBody))
+		m.Duration = time.Since(m.StartedAt)
+		m.State = store.StateCompleted
+	})
+}
+
+func (i *interceptor) buildSyntheticResponse(
+	f *mp.Flow, id string, reqBody []byte,
+	status int, headers map[string]string, body []byte,
+) {
+	h := http.Header{}
+	for k, v := range headers {
+		h.Set(k, v)
+	}
+	f.Response = &mp.Response{
+		StatusCode: status,
+		Header:     h,
+		Body:       body,
+	}
+	i.store.SetData(id, &store.FlowData{
+		RequestHeaders:  f.Request.Header.Clone(),
+		RequestBody:     reqBody,
+		ResponseHeaders: h.Clone(),
+		ResponseBody:    body,
+	})
+	ct := h.Get("Content-Type")
+	i.store.Update(id, func(m *store.FlowMeta) {
+		m.StatusCode = status
+		m.ContentType = ct
+		m.SizeBytes = int64(len(body))
 		m.Duration = time.Since(m.StartedAt)
 		m.State = store.StateCompleted
 	})

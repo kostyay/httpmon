@@ -158,6 +158,57 @@ func CreateNewScript(dir string) (string, error) {
 	return f.Name(), nil
 }
 
+// CreateMapLocalScript creates a map-local script in dir with the given
+// URL pattern and local file path. Returns the path to the created file.
+func CreateMapLocalScript(dir, pattern, localPath string) (string, error) {
+	if err := EnsureScriptDir(dir); err != nil {
+		return "", err
+	}
+
+	slug := patternSlug(pattern)
+
+	f, err := os.CreateTemp(dir, "mock-*.js")
+	if err != nil {
+		return "", fmt.Errorf("create temp: %w", err)
+	}
+	defer f.Close()
+
+	content := fmt.Sprintf(`// ---
+// name: mock-%s
+// match:
+//   - "%s"
+// enabled: true
+// ---
+
+function onRequest(ctx) {
+  ctx.respondWith({file: "%s"});
+}
+`, slug, pattern, localPath)
+
+	if _, err := f.WriteString(content); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("write template: %w", err)
+	}
+
+	return f.Name(), nil
+}
+
+// patternSlug creates a short slug from a URL pattern for naming.
+func patternSlug(pattern string) string {
+	s := strings.NewReplacer(
+		"*://", "", "http://", "", "https://", "",
+		"*", "", "/", "-", ".", "-",
+	).Replace(pattern)
+	s = strings.Trim(s, "-")
+	if len(s) > 30 {
+		s = s[:30]
+	}
+	if s == "" {
+		s = "local"
+	}
+	return s
+}
+
 // DeleteScript removes the file at path.
 func DeleteScript(path string) error {
 	return os.Remove(path)

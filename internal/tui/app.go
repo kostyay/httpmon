@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/filter"
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -84,23 +85,27 @@ type App struct {
 	scriptsCursor        int
 	scriptsList          []scripting.ScriptInfo
 	scriptsConfirmDelete bool
+	scriptsAddMapLocal   bool
+	scriptsMLPattern     textinput.Model
+	scriptsMLPath        textinput.Model
+	scriptsMLFocus       int
 
 	// throttle modal
 	throttle       ThrottleController
 	showThrottle   bool
 	throttleCursor int
 
-	// map local modal
-	mapLocal              MapLocalManager
-	mapLocalFile          string // path for auto-persist
-	showMapLocal          bool
-	mapLocalCursor        int
-	mapLocalRules         []maplocal.Rule
-	mapLocalConfirmDelete bool
-	mapLocalAdding        bool
-	mapLocalAddFocus      int // 0=pattern, 1=path
-	mapLocalPatternInput  textinput.Model
-	mapLocalPathInput     textinput.Model
+	// breakpoint editor
+	breakpoints          breakpoint.Controller
+	showBreakpointQueue  bool
+	breakpointCursor     int
+	breakpointPending    []breakpoint.BreakpointHit
+	editingBreakpoint    *breakpoint.BreakpointHit
+	bpHeadersTA          textarea.Model
+	bpBodyTA             textarea.Model
+	bpFocusedPane        int
+	breakpointHitCount   int
+	breakpointSub        <-chan breakpoint.BreakpointHit
 
 	// detail search
 	detailSearch    bool
@@ -123,13 +128,12 @@ type App struct {
 
 // AppConfig holds all dependencies for the TUI application.
 type AppConfig struct {
-	Store        FlowReader
-	Proxy        ProxyInfo
-	CATrusted    bool
-	Scripts      ScriptManager
-	Throttle     ThrottleController
-	MapLocal     MapLocalManager
-	MapLocalFile string
+	Store       FlowReader
+	Proxy       ProxyInfo
+	CATrusted   bool
+	Scripts     ScriptManager
+	Throttle    ThrottleController
+	Breakpoints breakpoint.Controller
 }
 
 // NewApp creates a TUI application from the given config.
@@ -148,12 +152,11 @@ func NewApp(cfg AppConfig) *App {
 		caTrusted:       cfg.CATrusted,
 		scripts:         cfg.Scripts,
 		throttle:        cfg.Throttle,
-		mapLocal:        cfg.MapLocal,
-		mapLocalFile:    cfg.MapLocalFile,
 		filterInput:     ti,
 		searchInput:     si,
 		hostExpanded:    make(map[string]bool),
 		detailCollapsed: make(map[string]bool),
+		breakpoints:     cfg.Breakpoints,
 	}
 }
 
@@ -181,6 +184,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		a.refreshFlows()
+		a.drainBreakpointSub()
 		return a, tickCmd()
 
 	case editorFinishedMsg:
@@ -206,11 +210,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = true
 			return a, nil
 		}
+		if a.showBreakpointQueue {
+			return a.updateBreakpoint(msg)
+		}
 		if a.showThrottle {
 			return a.updateThrottle(msg)
-		}
-		if a.showMapLocal {
-			return a.updateMapLocal(msg)
 		}
 		if a.showScripts {
 			return a.updateScripts(msg)
@@ -250,14 +254,14 @@ func (a *App) viewContent() string {
 	switch {
 	case !a.ready:
 		return "Loading..."
+	case a.showBreakpointQueue:
+		return a.viewBreakpoint()
 	case a.showDiff:
 		return a.viewDiff()
 	case a.showHelp:
 		return a.viewHelp()
 	case a.showThrottle:
 		return a.viewThrottle()
-	case a.showMapLocal:
-		return a.viewMapLocal()
 	case a.showScripts:
 		return a.viewScripts()
 	case a.showMenu:
@@ -362,9 +366,9 @@ func (a *App) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.initThrottle()
 		}
 		return a, nil
-	case "M":
-		if a.mapLocal != nil {
-			a.initMapLocal()
+	case "B":
+		if a.breakpoints != nil {
+			a.initBreakpointQueue()
 		}
 		return a, nil
 	}
@@ -550,11 +554,6 @@ func (a *App) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "T":
 		if a.throttle != nil {
 			a.initThrottle()
-		}
-		return a, nil
-	case "M":
-		if a.mapLocal != nil {
-			a.initMapLocal()
 		}
 		return a, nil
 	case "esc", "q":
@@ -790,6 +789,11 @@ func (a *App) statusText() string {
 	info := fmt.Sprintf("%d flows | Proxy %s", a.totalFlows, addr)
 	if label := a.throttleStatusLabel(); label != "" {
 		info += " | " + styleWarning.Render("Throttle: "+label)
+	}
+	if a.breakpoints != nil {
+		if n := len(a.breakpoints.Pending()); n > 0 {
+			info += " | " + styleWarning.Render(fmt.Sprintf("⏸ %d", n))
+		}
 	}
 
 	var help string
