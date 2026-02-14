@@ -15,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
+	uuid "github.com/satori/go.uuid"
+
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
@@ -410,4 +414,178 @@ func TestInitPortZero(t *testing.T) {
 		t.Fatalf("Init with port 0: %v", err)
 	}
 	p.Stop()
+}
+
+func withScriptEngine(e *scripting.Engine) setupOpt {
+	return func(p *Proxy) { p.ScriptEngine = e }
+}
+
+func TestAddrAndCACertPath(t *testing.T) {
+	p, _, _ := setupProxy(t)
+	if p.Addr() == "" {
+		t.Error("Addr() should be non-empty after Init")
+	}
+	if p.CACertPath() == "" {
+		t.Error("CACertPath() should be non-empty after Init")
+	}
+}
+
+func TestRequestBodyTruncation(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(s, nil)
+
+	flowID := uuid.NewV4()
+	reqURL, _ := url.Parse("http://example.com/bigpost")
+
+	bigBody := make([]byte, maxBodySize+1000)
+	for i := range bigBody {
+		bigBody[i] = 'B'
+	}
+
+	f := &mp.Flow{
+		Id: flowID,
+		Request: &mp.Request{
+			Method: "POST",
+			URL:    reqURL,
+			Header: http.Header{"Content-Type": {"application/octet-stream"}},
+			Body:   bigBody,
+		},
+	}
+
+	ic.Requestheaders(f)
+	ic.Request(f)
+
+	_, data, err := s.Get(store.FlowID(flowID.String()))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	if len(data.RequestBody) != maxBodySize {
+		t.Errorf("request body len = %d, want exactly %d (truncated)", len(data.RequestBody), maxBodySize)
+	}
+}
+
+func TestScriptRequestMutation(t *testing.T) {
+	var gotHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Scripted")
+		w.WriteHeader(200)
+		fmt.Fprint(w, "ok")
+	}))
+	defer ts.Close()
+
+	engine := scripting.New()
+	err := engine.LoadScript("mutate-req", `function onRequest(ctx) { ctx.headers["X-Scripted"] = "true"; }`, "")
+	if err != nil {
+		t.Fatalf("LoadScript: %v", err)
+	}
+
+	_, s, port := setupProxy(t, withScriptEngine(engine))
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/scripted-req")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	findFlow(t, s, "/scripted-req")
+	if gotHeader != "true" {
+		t.Errorf("upstream X-Scripted = %q, want %q", gotHeader, "true")
+	}
+}
+
+func TestScriptRequestBlocking(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("upstream should not be reached when script blocks")
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	engine := scripting.New()
+	err := engine.LoadScript("block-req", `function onRequest(ctx) { ctx.blocked = true; }`, "")
+	if err != nil {
+		t.Fatalf("LoadScript: %v", err)
+	}
+
+	_, _, port := setupProxy(t, withScriptEngine(engine))
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/blocked")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestScriptResponseMutation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(200)
+		fmt.Fprint(w, "ok")
+	}))
+	defer ts.Close()
+
+	engine := scripting.New()
+	err := engine.LoadScript("mutate-resp", `function onResponse(ctx) { ctx.headers["X-Resp-Script"] = "yes"; }`, "")
+	if err != nil {
+		t.Fatalf("LoadScript: %v", err)
+	}
+
+	_, s, port := setupProxy(t, withScriptEngine(engine))
+	client := proxyClient(port)
+
+	resp, err := client.Get(ts.URL + "/scripted-resp")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	_, data := findFlow(t, s, "/scripted-resp")
+	if data == nil {
+		t.Fatal("expected flow data")
+	}
+	if v := data.ResponseHeaders.Get("X-Resp-Script"); v != "yes" {
+		t.Errorf("X-Resp-Script = %q, want %q", v, "yes")
+	}
+}
+
+func TestMarkFailed(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(s, nil)
+
+	flowID := uuid.NewV4()
+	reqURL, _ := url.Parse("http://example.com/fail-test")
+
+	f := &mp.Flow{
+		Id: flowID,
+		Request: &mp.Request{
+			Method: "GET",
+			URL:    reqURL,
+			Header: http.Header{},
+		},
+	}
+
+	ic.Requestheaders(f)
+
+	// Response with nil Response field triggers markFailed.
+	f.Response = nil
+	ic.Response(f)
+
+	meta, _, err := s.Get(store.FlowID(flowID.String()))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if meta.State != store.StateFailed {
+		t.Errorf("State = %d, want StateFailed (%d)", meta.State, store.StateFailed)
+	}
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## feat/tree-view-flow-list
+
+JavaScript scripting engine with YAML-frontmatter script files, glob-based URL
+matching, and `onRequest`/`onResponse` hooks that can modify headers, bodies,
+and status codes in-flight. Scripts live in `~/.config/httpmon/scripts/`, support
+hot-reload via `ScriptManager`, and are toggled/created/deleted through a new TUI
+modal (Ctrl+S). Integration tests cover the full script lifecycle.
+
+Massive TUI expansion with a discoverable MC-style action menu (#7). Pressing
+Space opens a context-aware popup showing available commands for the current
+view — list items like Export HAR, Compose Request, Mark for Diff; detail items
+like Copy cURL, Repeat Request, Open in Editor — eliminating the need to
+memorize 30+ keybindings.
+
+Flow list gains tree view with host grouping, expand/collapse, and focus mode.
+Detail view adds image preview, syntax-highlighted bodies, collapsible sections,
+in-view search with match navigation, and external editor support. New CLI flags
+`--block` and `--allow` enable wildcard-based host filtering at the proxy layer.
+
+Supporting packages round out the feature set: HAR export, request diff, request
+repeat, cURL copy (OSC 52 clipboard), request composer, throttling, map-local
+file serving, and advanced filter expressions.
+
 ## feat/phase1-core-pipeline-tui
 
 Full HTTP/HTTPS debugging proxy with terminal UI (#3). Captures request/response

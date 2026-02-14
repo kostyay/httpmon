@@ -34,5 +34,11 @@ go.work.sum
 # Claude Code local settings
 .claude/
 
+# Tickets
+.ktickets/
+
+# HAR exports
+*.har
+
 # macOS
 .DS_Store
