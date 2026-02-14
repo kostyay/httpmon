@@ -26,6 +26,9 @@ func (m *mockScriptManager) Toggle(fp string) error         { m.toggled = append
 func (m *mockScriptManager) Delete(fp string) error         { m.deleted = append(m.deleted, fp); return nil }
 func (m *mockScriptManager) CreateNew() (string, error)     { return m.createPath, m.createErr }
 func (m *mockScriptManager) ScriptDir() string              { return m.dir }
+func (m *mockScriptManager) QuickAddMapLocal(pattern, localPath string) (string, error) {
+	return "/scripts/mock.js", nil
+}
 func (m *mockScriptManager) Reload() {
 	m.reloadCnt++
 }
@@ -195,5 +198,159 @@ func TestViewScriptsPopulated(t *testing.T) {
 	}
 	if !strings.Contains(view, "add-header") {
 		t.Error("scripts view should contain second script name")
+	}
+}
+
+func TestViewScriptsCategoryBadges(t *testing.T) {
+	sm := &mockScriptManager{
+		scripts: []scripting.ScriptInfo{
+			{
+				Name:       "bp-script",
+				FilePath:   "/scripts/bp.js",
+				Enabled:    true,
+				Categories: []scripting.ScriptCategory{scripting.CategoryBreakpoint},
+			},
+			{
+				Name:       "mock-api",
+				FilePath:   "/scripts/mock.js",
+				Enabled:    true,
+				Categories: []scripting.ScriptCategory{scripting.CategoryMapLocal},
+			},
+			{
+				Name:       "both-script",
+				FilePath:   "/scripts/both.js",
+				Enabled:    true,
+				Categories: []scripting.ScriptCategory{scripting.CategoryBreakpoint, scripting.CategoryMapLocal},
+			},
+			{
+				Name:       "plain-script",
+				FilePath:   "/scripts/plain.js",
+				Enabled:    true,
+				Categories: []scripting.ScriptCategory{scripting.CategoryScript},
+			},
+		},
+		dir: "/scripts",
+	}
+	app := newAppWithScripts(3, sm)
+	sendKey(app, "S")
+
+	view := ansi.Strip(app.viewScripts())
+	if !strings.Contains(view, "[Breakpoint]") {
+		t.Error("should show [Breakpoint] badge for bp-script")
+	}
+	if !strings.Contains(view, "[Map Local]") {
+		t.Error("should show [Map Local] badge for mock-api")
+	}
+	if !strings.Contains(view, "[Script]") {
+		t.Error("should show [Script] badge for plain-script")
+	}
+}
+
+func TestScriptsQuickAddMapLocal(t *testing.T) {
+	sm := testScriptManager()
+	app := newAppWithScripts(3, sm)
+	sendKey(app, "S")
+
+	// Press m to open quick-add form.
+	app.updateScripts(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if !app.scriptsAddMapLocal {
+		t.Fatal("m should open quick-add map local form")
+	}
+
+	// Type in pattern field.
+	app.updateScripts(tea.KeyPressMsg{Code: 'a', Text: "*://api/*"})
+
+	// Tab to file path field.
+	app.updateScripts(tea.KeyPressMsg{Code: tea.KeyTab})
+	if app.scriptsMLFocus != 1 {
+		t.Errorf("Tab should switch to path field, got focus=%d", app.scriptsMLFocus)
+	}
+
+	// Esc cancels.
+	app.updateScripts(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if app.scriptsAddMapLocal {
+		t.Error("Esc should close quick-add form")
+	}
+}
+
+func TestScriptsQuickAddMapLocalSubmit(t *testing.T) {
+	sm := &mockScriptManager{
+		scripts: []scripting.ScriptInfo{
+			{Name: "existing", FilePath: "/scripts/existing.js", Enabled: true},
+		},
+		dir: "/scripts",
+	}
+	app := newAppWithScripts(3, sm)
+	sendKey(app, "S")
+
+	// Open form, fill both fields, submit.
+	app.updateScripts(tea.KeyPressMsg{Code: 'm', Text: "m"})
+
+	// Type pattern.
+	for _, ch := range "*://api/*" {
+		app.updateScripts(tea.KeyPressMsg{Code: ch, Text: string(ch)})
+	}
+
+	// Tab to path.
+	app.updateScripts(tea.KeyPressMsg{Code: tea.KeyTab})
+
+	// Type file path.
+	for _, ch := range "./mock.json" {
+		app.updateScripts(tea.KeyPressMsg{Code: ch, Text: string(ch)})
+	}
+
+	// Submit.
+	app.updateScripts(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if app.scriptsAddMapLocal {
+		t.Error("Enter should close quick-add form after submission")
+	}
+}
+
+func TestViewScriptsShowsMapLocalHint(t *testing.T) {
+	sm := testScriptManager()
+	app := newAppWithScripts(3, sm)
+	sendKey(app, "S")
+
+	view := ansi.Strip(app.viewScripts())
+	if !strings.Contains(view, "m:map-local") {
+		t.Error("help bar should contain m:map-local hint")
+	}
+}
+
+func TestViewScriptsMapLocalForm(t *testing.T) {
+	sm := testScriptManager()
+	app := newAppWithScripts(3, sm)
+	sendKey(app, "S")
+
+	app.updateScripts(tea.KeyPressMsg{Code: 'm', Text: "m"})
+
+	view := ansi.Strip(app.viewScripts())
+	if !strings.Contains(view, "Pattern") {
+		t.Error("quick-add form should show Pattern label")
+	}
+	if !strings.Contains(view, "File") {
+		t.Error("quick-add form should show File label")
+	}
+}
+
+func TestCategoryBadgesEmpty(t *testing.T) {
+	result := categoryBadges(nil)
+	if result != "" {
+		t.Errorf("categoryBadges(nil) = %q, want empty", result)
+	}
+}
+
+func TestCategoryBadgesSingle(t *testing.T) {
+	result := ansi.Strip(categoryBadges([]scripting.ScriptCategory{scripting.CategoryBreakpoint}))
+	if result != "[Breakpoint]" {
+		t.Errorf("got %q, want [Breakpoint]", result)
+	}
+}
+
+func TestCategoryBadgesMulti(t *testing.T) {
+	cats := []scripting.ScriptCategory{scripting.CategoryBreakpoint, scripting.CategoryMapLocal}
+	result := ansi.Strip(categoryBadges(cats))
+	if result != "[Breakpoint][Map Local]" {
+		t.Errorf("got %q, want [Breakpoint][Map Local]", result)
 	}
 }

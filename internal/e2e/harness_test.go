@@ -19,7 +19,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/tui"
@@ -45,10 +44,8 @@ func newHarness(t *testing.T, handler http.Handler) *harness {
 	port := freePort(t)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
-	ml := maplocal.New()
 	p := proxy.New(s, t.TempDir())
 	p.SslInsecure = true
-	p.MapLocal = ml
 	if err := p.Init(addr); err != nil {
 		upstream.Close()
 		t.Fatalf("proxy init: %v", err)
@@ -64,7 +61,6 @@ func newHarness(t *testing.T, handler http.Handler) *harness {
 		Proxy:     p,
 		CATrusted: true,
 		Throttle:  p,
-		MapLocal:  ml,
 	})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
