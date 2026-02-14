@@ -173,9 +173,9 @@ func TestMenuDetailImageItem(t *testing.T) {
 		ResponseHeaders: map[string][]string{"Content-Type": {"image/png"}},
 		ResponseBody:    []byte{0x89, 0x50, 0x4E, 0x47}, // PNG magic bytes
 	}
-	app := NewApp(m, &mockProxyInfo{addr: ":9999"}, true, nil)
+	app := NewApp(AppConfig{Store: m, Proxy: &mockProxyInfo{addr: ":9999"}, CATrusted: true})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app.Update(tickMsg{})
+	app.Update(TickMsg{})
 
 	// Enter detail on response tab (where image body is).
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

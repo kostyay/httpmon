@@ -55,6 +55,12 @@ func (a *App) listMenuItems() []menuItem {
 	if a.scripts != nil {
 		items = append(items, menuItem{label: "Scripts", key: "S"})
 	}
+	if a.throttle != nil {
+		items = append(items, menuItem{label: "Throttle", key: "T"})
+	}
+	if a.mapLocal != nil {
+		items = append(items, menuItem{label: "Map Local", key: "M"})
+	}
 	return items
 }
 
@@ -71,6 +77,12 @@ func (a *App) detailMenuItems() []menuItem {
 	}
 	if a.scripts != nil {
 		items = append(items, menuItem{label: "Scripts", key: "S"})
+	}
+	if a.throttle != nil {
+		items = append(items, menuItem{label: "Throttle", key: "T"})
+	}
+	if a.mapLocal != nil {
+		items = append(items, menuItem{label: "Map Local", key: "M"})
 	}
 	return items
 }
