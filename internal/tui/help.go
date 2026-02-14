@@ -61,7 +61,6 @@ func helpGroups() []helpGroup {
 				{"?", "Toggle this help"},
 				{"S", "Scripts manager"},
 				{"T", "Throttle settings"},
-				{"M", "Map Local rules"},
 				{"q / Ctrl+C", "Quit"},
 				{"Esc", "Back / dismiss"},
 			},

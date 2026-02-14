@@ -258,6 +258,62 @@ func TestDeleteScript(t *testing.T) {
 	}
 }
 
+func TestCreateMapLocalScript(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "scripts")
+
+	path, err := CreateMapLocalScript(dir, "*://api.example.com/*", "./mock.json")
+	if err != nil {
+		t.Fatalf("CreateMapLocalScript: %v", err)
+	}
+
+	if !strings.HasPrefix(path, dir) {
+		t.Errorf("path %q not in dir %q", path, dir)
+	}
+	if !strings.HasSuffix(path, ".js") {
+		t.Errorf("path %q should end with .js", path)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	source := string(data)
+
+	meta, body, parseErr := ParseHeader(source)
+	if parseErr != nil {
+		t.Fatalf("template parse: %v", parseErr)
+	}
+	if meta.Name == "" {
+		t.Error("should have a name")
+	}
+	if len(meta.Match) != 1 || meta.Match[0] != "*://api.example.com/*" {
+		t.Errorf("match = %v, want [*://api.example.com/*]", meta.Match)
+	}
+	if !meta.IsEnabled() {
+		t.Error("should be enabled")
+	}
+	if !strings.Contains(body, `ctx.respondWith`) {
+		t.Error("body should contain ctx.respondWith call")
+	}
+	if !strings.Contains(body, `"./mock.json"`) {
+		t.Error("body should contain the file path")
+	}
+}
+
+func TestCreateMapLocalScript_Slug(t *testing.T) {
+	dir := t.TempDir()
+
+	path, err := CreateMapLocalScript(dir, "*://api.example.com/v1/users*", "./data.json")
+	if err != nil {
+		t.Fatalf("CreateMapLocalScript: %v", err)
+	}
+
+	base := filepath.Base(path)
+	if !strings.HasPrefix(base, "mock-") {
+		t.Errorf("filename %q should start with 'mock-'", base)
+	}
+}
+
 func TestFilenameToName(t *testing.T) {
 	tests := []struct {
 		in, want string

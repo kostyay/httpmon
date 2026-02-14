@@ -12,9 +12,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
-	"github.com/kostyay/httpmon/internal/maplocal"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
@@ -34,7 +34,6 @@ func main() {
 	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
 	throttleFlag := flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
 	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
-	mapLocalFlag := flag.String("maplocal", "", "path to map-local rules JSON file")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,11 +51,13 @@ func main() {
 	s := store.New(*bufSize)
 	p := proxy.New(s, *dataDir)
 
-	// Init scripting engine.
+	// Init scripting engine and breakpoint controller.
 	scriptsDir := filepath.Join(*dataDir, "scripts")
 	engine := scripting.New()
 	engine.LoadFromDir(scriptsDir)
+	bpCtrl := breakpoint.NewController()
 	p.ScriptEngine = engine
+	p.BreakpointCtrl = bpCtrl
 
 	if *blockHosts != "" || *allowHosts != "" {
 		block := splitCSV(*blockHosts)
@@ -74,16 +75,6 @@ func main() {
 	}
 	if *latencyFlag > 0 {
 		p.ThrottleLatency = *latencyFlag
-	}
-
-	// Map-local rules.
-	var ml *maplocal.MapLocal
-	if *mapLocalFlag != "" {
-		ml = maplocal.New()
-		if err := ml.LoadFromFile(*mapLocalFlag); err != nil {
-			fatal("maplocal: %v", err)
-		}
-		p.MapLocal = ml
 	}
 
 	addr := fmt.Sprintf(":%d", *port)
@@ -111,15 +102,12 @@ func main() {
 	mgr := scripting.NewManager(engine, scriptsDir)
 
 	cfg := tui.AppConfig{
-		Store:     s,
-		Proxy:     p,
-		CATrusted: caTrusted,
-		Scripts:   mgr,
-		Throttle:  p,
-	}
-	if ml != nil {
-		cfg.MapLocal = ml
-		cfg.MapLocalFile = *mapLocalFlag
+		Store:       s,
+		Proxy:       p,
+		CATrusted:   caTrusted,
+		Scripts:     mgr,
+		Throttle:    p,
+		Breakpoints: bpCtrl,
 	}
 	app := tui.NewApp(cfg)
 	prog := tea.NewProgram(app)

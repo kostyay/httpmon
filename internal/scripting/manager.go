@@ -1,5 +1,9 @@
 package scripting
 
+import (
+	"fmt"
+)
+
 // Manager wraps Engine and provides TUI-friendly script management.
 type Manager struct {
 	engine *Engine
@@ -20,19 +24,19 @@ func (m *Manager) Scripts() []ScriptInfo {
 	infos := make([]ScriptInfo, 0, len(valid)+len(errored))
 	for _, sf := range valid {
 		infos = append(infos, ScriptInfo{
-			Name:     sf.Meta.Name,
-			Matches:  sf.Meta.Match,
-			FilePath: sf.FilePath,
-			Enabled:  sf.Meta.IsEnabled(),
+			Name:       sf.Meta.Name,
+			Matches:    sf.Meta.Match,
+			FilePath:   sf.FilePath,
+			Enabled:    sf.Meta.IsEnabled(),
+			Categories: DetectCategories(sf.Source),
 		})
 	}
 	for _, sf := range errored {
-		info := ScriptInfo{
+		infos = append(infos, ScriptInfo{
 			Name:     sf.Meta.Name,
 			FilePath: sf.FilePath,
 			Error:    sf.Error,
-		}
-		infos = append(infos, info)
+		})
 	}
 
 	return infos
@@ -69,4 +73,16 @@ func (m *Manager) ScriptDir() string {
 // Reload re-scans the scripts directory and reloads the engine.
 func (m *Manager) Reload() {
 	m.engine.Reload(m.dir)
+}
+
+// QuickAddMapLocal creates a map-local script with respondWith({file}).
+func (m *Manager) QuickAddMapLocal(
+	pattern, localPath string,
+) (string, error) {
+	path, err := CreateMapLocalScript(m.dir, pattern, localPath)
+	if err != nil {
+		return "", fmt.Errorf("quick add map-local: %w", err)
+	}
+	m.Reload()
+	return path, nil
 }
