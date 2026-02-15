@@ -30,15 +30,20 @@ changelog:
   use: github
   sort: asc
 
-brews:
+homebrew_casks:
   - repository:
       owner: kostyay
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
     homepage: "https://httpmon.dev"
     description: "Terminal-native HTTP/HTTPS debugging proxy"
     license: "MIT"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/httpmon"]
+          end
 
 release:
   github:
