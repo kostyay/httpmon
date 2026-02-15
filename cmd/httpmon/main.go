@@ -15,6 +15,7 @@ import (
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/mcpserver"
 	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/scripting"
@@ -35,6 +36,8 @@ func main() {
 	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
 	throttleFlag := flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
 	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
+	mcpFlag := flag.Bool("mcp", false, "start MCP server on default port (9551)")
+	mcpPortFlag := flag.Int("mcp-port", 0, "MCP server port (implies --mcp)")
 	flag.Parse()
 
 	if *showVersion {
@@ -103,6 +106,29 @@ func main() {
 	caTrusted := certutil.IsInstalled(p.CACertPath())
 	mgr := scripting.NewManager(engine, scriptsDir)
 
+	// MCP server (optional).
+	if *mcpPortFlag > 0 {
+		*mcpFlag = true
+	}
+	var mcpSrv *mcpserver.Server
+	if *mcpFlag {
+		mcpPort := *mcpPortFlag
+		if mcpPort == 0 {
+			mcpPort = mcpserver.DefaultPort
+		}
+		mcpSrv = mcpserver.New(mcpserver.Config{
+			Store:    s,
+			Proxy:    p,
+			Scripts:  mgr,
+			Throttle: p,
+			Port:     mcpPort,
+		})
+		if err := mcpSrv.Start(ctx); err != nil {
+			fatal("mcp server: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "MCP server listening on :%d\n", mcpSrv.Port())
+	}
+
 	cfg := tui.AppConfig{
 		Store:       s,
 		Proxy:       p,
@@ -110,6 +136,7 @@ func main() {
 		Scripts:     mgr,
 		Throttle:    p,
 		Breakpoints: bpCtrl,
+		MCP:         mcpSrv,
 	}
 	app := tui.NewApp(cfg)
 	prog := tea.NewProgram(app)
@@ -117,6 +144,9 @@ func main() {
 		fatal("TUI error: %v", err)
 	}
 	cancel()
+	if mcpSrv != nil {
+		mcpSrv.Stop()
+	}
 	p.Stop()
 	if err := <-proxyErr; err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "proxy: %v\n", err)
