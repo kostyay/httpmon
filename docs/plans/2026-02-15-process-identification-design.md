@@ -259,10 +259,10 @@ Focus mode (`f`) works in both host-tree and process-tree modes.
 
 ---
 
-## Unresolved Questions
+## Resolved Questions
 
-1. **Permissions**: `gopsutil` process lookup may need elevated permissions
-   (especially on macOS). Should we show a warning if resolution consistently
-   fails, or silently fall back to `—`?
-2. **goroutine limit**: Should we cap concurrent resolution goroutines (e.g.,
-   semaphore of 10) to avoid thundering herd on burst traffic?
+1. **Permissions**: Log a warning (once) if process resolution fails N times
+   consecutively (e.g., 5). Suggests running with `sudo` or granting permissions.
+   Still fall back to `—` per-flow.
+2. **Goroutine limit**: Use a semaphore (buffered channel, size ~10) to cap
+   concurrent resolution goroutines. Excess requests queued, not dropped.
