@@ -13,6 +13,10 @@
 
 Think Proxyman or Charles, but in your terminal.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="httpmon demo" width="700">
+</p>
+
 ## Features
 
 - **MITM proxy** — Intercept HTTP and HTTPS traffic with auto-generated CA certificates
