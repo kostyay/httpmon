@@ -266,6 +266,36 @@ func TestMCP_ReplayCompose(t *testing.T) {
 	}
 }
 
+func TestMCP_MockResponse(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	// Create mock rule with proper glob pattern (scheme://host/path).
+	result := h.callTool(t, "mock_response", map[string]any{
+		"match_pattern": "*://*/mock-target",
+		"status":        201,
+		"body":          `{"mocked":true}`,
+		"headers":       map[string]any{"X-Mock": "yes"},
+	})
+	text := resultText(result)
+	if result.IsError {
+		t.Fatalf("mock error: %s", text)
+	}
+	if !strings.Contains(text, "script_path") {
+		t.Errorf("expected script_path in response, got: %s", text)
+	}
+
+	// Send a request that matches the mock pattern.
+	resp, err := h.client.Get(h.upstream.URL + "/mock-target")
+	if err != nil {
+		t.Fatalf("GET /mock-target: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 201 {
+		t.Errorf("expected mocked 201, got %d", resp.StatusCode)
+	}
+}
+
 // --- Script tool tests ---
 
 func TestMCP_CreateAndListScript(t *testing.T) {
@@ -385,6 +415,28 @@ func TestMCP_GetScript(t *testing.T) {
 	}
 	if !strings.Contains(text, "custom code") {
 		t.Error("should contain script source")
+	}
+}
+
+func TestMCP_MockViaScript(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	// mock_response creates a script categorized as "mock".
+	result := h.callTool(t, "mock_response", map[string]any{
+		"match_pattern": "*://*/via-script*",
+		"status":        200,
+		"body":          "hello",
+	})
+	if result.IsError {
+		t.Fatalf("mock error: %s", resultText(result))
+	}
+
+	// Verify it shows as a mock category in list_scripts.
+	result = h.callTool(t, "list_scripts", nil)
+	text := resultText(result)
+	if !strings.Contains(text, "mock") {
+		t.Errorf("mock script should appear with 'mock' in list, got: %s", text)
 	}
 }
 
