@@ -1,6 +1,15 @@
-# httpmon
+<p align="center">
+  <img src="assets/header.png" alt="httpmon" width="700">
+</p>
 
-Terminal-native HTTP/HTTPS debugging proxy. Intercept, inspect, and filter traffic — all from your terminal with vim-style navigation.
+<p align="center">
+  <a href="https://docs.httpmon.dev"><img src="https://img.shields.io/badge/docs-docs.httpmon.dev-blue" alt="Docs"></a>
+  <a href="https://httpmon.dev"><img src="https://img.shields.io/badge/web-httpmon.dev-green" alt="Website"></a>
+</p>
+
+<p align="center">
+  Terminal-native HTTP/HTTPS debugging proxy. Intercept, inspect, and filter traffic — all from your terminal with vim-style navigation.
+</p>
 
 Think Proxyman or Charles, but in your terminal.
 
