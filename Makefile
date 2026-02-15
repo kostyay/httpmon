@@ -21,7 +21,15 @@ clean:
 	rm -f httpmon coverage.out
 
 release: lint test security
-	goreleaser release --snapshot --clean
+	@git fetch --tags origin && \
+	if [ -n "$(VERSION)" ]; then TAG=$(VERSION); \
+	else LATEST=$$(git tag -l 'v*' --sort=-v:refname | sed -n '1p'); \
+	  if [ -z "$$LATEST" ]; then TAG=v0.1.0; \
+	  else V=$${LATEST#v}; P=$${V##*.}; TAG=v$${V%.*}.$$((P+1)); fi; \
+	fi && \
+	printf "Release $$TAG? [y/N] " && read ans && [ "$$ans" = y ] && \
+	git tag "$$TAG" && git push origin "$$TAG" && \
+	GITHUB_TOKEN=$$(gh auth token) goreleaser release --clean
 
 security:
 	@echo "==> gosec"
