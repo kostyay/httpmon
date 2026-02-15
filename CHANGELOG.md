@@ -1,11 +1,32 @@
 # Changelog
 
-## feat/throttle-maplocal
+## [feat/script-actions](https://github.com/kostyay/httpmon/pull/10) - 2026-02-14
+
+Scripts gain three new primitives: `ctx.respondWith()` for synthetic responses,
+`ctx.readFile()` for local file access, and `ctx.breakpoint()` for interactive
+pause/edit/resume (#10). The `internal/maplocal` package is deleted entirely —
+map-local is now just `ctx.respondWith({file: "path"})` in a script. A new
+`BreakpointController` manages pause/resume with per-flow channels and a TUI
+editor featuring dual headers/body panes with syntax highlighting. Scripts are
+auto-categorized as `[Breakpoint]`, `[Map Local]`, or `[Script]` via static
+source analysis, and a quick-add helper (`m` key) generates map-local
+boilerplate from a URL pattern and file path.
+
+## [fix/gosec-security-issues](https://github.com/kostyay/httpmon/pull/9) - 2026-02-14
+
+Resolve all gosec security findings (#9). File permissions tightened from 0644
+to 0600, integer overflow guards added with `math.MaxInt32` clamping, unchecked
+`Close()` and `Remove()` calls addressed, and `#nosec` annotations added with
+justification comments for intentional patterns (MITM TLS, user-selected editor
+commands, known-dir file reads).
+
+## [feat/throttle-maplocal](https://github.com/kostyay/httpmon/pull/8) - 2026-02-14
 
 Bandwidth throttling and map-local file serving gain full TUI modals with
-keyboard-driven preset selection (3G/4G/WiFi) and rule management. The proxy
-interceptor now correctly completes MapLocal flows during the Request phase,
-fixing a bug where locally-served responses stayed in-progress indefinitely.
+keyboard-driven preset selection (3G/4G/WiFi) and rule management (#8). The
+proxy interceptor now correctly completes MapLocal flows during the Request
+phase, fixing a bug where locally-served responses stayed in-progress
+indefinitely.
 
 23 end-to-end tests exercise the full stack (real HTTP server → MITM proxy →
 store → TUI) across five categories: capture, filtering, views, actions, and
