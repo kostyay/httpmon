@@ -30,27 +30,15 @@ changelog:
   use: github
   sort: asc
 
-homebrew_casks:
+brews:
   - repository:
       owner: kostyay
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Casks
-    homepage: "https://github.com/kostyay/httpmon"
-    description: >-
-      Terminal-native HTTP/HTTPS debugging proxy
-      with MITM interception and TUI
+    directory: Formula
+    homepage: "https://httpmon.dev"
+    description: "Terminal-native HTTP/HTTPS debugging proxy"
     license: "MIT"
-    binaries:
-      - httpmon
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr",
-              args: ["-dr", "com.apple.quarantine",
-                     "#{staged_path}/httpmon"]
-          end
 
 release:
   github:
