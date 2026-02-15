@@ -32,6 +32,12 @@ Think Proxyman or Charles, but in your terminal.
 
 ## Quick Start
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install kostyay/tap/httpmon
+```
+
 ### Install from source
 
 ```bash
