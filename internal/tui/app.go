@@ -141,6 +141,7 @@ type AppConfig struct {
 	Scripts     ScriptManager
 	Throttle    ThrottleController
 	Breakpoints breakpoint.Controller
+	MCP         MCPServer
 }
 
 // NewApp creates a TUI application from the given config.
