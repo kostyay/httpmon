@@ -1,5 +1,13 @@
 # Changelog
 
+## add-logo-assets
+
+Homebrew distribution via `brew tap kostyay/tap && brew install httpmon` is now
+configured through goreleaser's `homebrew_casks` integration (#13). Each release
+auto-generates a cask with platform-specific binaries and SHA256 checksums,
+pushed to the `kostyay/homebrew-tap` repo. Project branding added with logo,
+favicon, and README header image.
+
 ## [feat/script-actions](https://github.com/kostyay/httpmon/pull/10) - 2026-02-14
 
 Scripts gain three new primitives: `ctx.respondWith()` for synthetic responses,
@@ -33,7 +41,7 @@ store → TUI) across five categories: capture, filtering, views, actions, and
 proxy features. All tests run in parallel with per-test isolation. README
 updated with scripting, throttling, and map-local documentation.
 
-## feat/tree-view-flow-list (#7)
+## [0.1.5](https://github.com/kostyay/httpmon/pull/7) - 2026-02-14
 
 JavaScript scripting engine with YAML-frontmatter script files, glob-based URL
 matching, and `onRequest`/`onResponse` hooks that can modify headers, bodies,
@@ -56,7 +64,7 @@ Supporting packages round out the feature set: HAR export, request diff, request
 repeat, cURL copy (OSC 52 clipboard), request composer, throttling, map-local
 file serving, and advanced filter expressions.
 
-## feat/phase1-core-pipeline-tui (#3)
+## [0.1.1](https://github.com/kostyay/httpmon/pull/3) - 2026-02-09
 
 Full HTTP/HTTPS debugging proxy with terminal UI (#3). Captures request/response
 flows through a go-mitmproxy MITM interceptor into a thread-safe ring buffer
@@ -69,7 +77,7 @@ New `--install-ca` flag automates CA certificate trust on macOS and Linux,
 replacing manual platform-specific commands. Runs `security add-trusted-cert`
 on darwin and `update-ca-certificates` on linux; just `sudo httpmon --install-ca`.
 
-## feat/project-scaffold (#1)
+## [0.1.0](https://github.com/kostyay/httpmon/pull/1) - 2026-02-09
 
 Full project scaffolding with security-first CI/CD pipeline. Go 1.25 module
 with golangci-lint, goreleaser for cross-platform releases, and a three-layer
