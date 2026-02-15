@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -303,13 +304,12 @@ func injectRespondWith(
 
 		if f := opts.Get("file"); f != nil && !goja.IsUndefined(f) {
 			path := f.String()
-			resolved := resolveScriptPath(jsCtx, path)
-			data, err := os.ReadFile(resolved)
+			data, err := safeReadFile(scriptDirFromCtx(jsCtx), path)
 			if err != nil {
 				return goja.Undefined()
 			}
 			body = string(data)
-			ct := mime.TypeByExtension(filepath.Ext(resolved))
+			ct := mime.TypeByExtension(filepath.Ext(path))
 			if ct == "" {
 				ct = "application/octet-stream"
 			}
@@ -348,15 +348,34 @@ func injectRespondWith(
 	})
 }
 
-// resolveScriptPath resolves path relative to the script file directory.
-func resolveScriptPath(jsCtx *goja.Object, path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
+// scriptDirFromCtx returns the script directory stored in the JS context.
+func scriptDirFromCtx(jsCtx *goja.Object) string {
 	if v := jsCtx.Get("_scriptDir"); v != nil && !goja.IsUndefined(v) {
-		return filepath.Join(v.String(), path)
+		return v.String()
 	}
-	return path
+	return ""
+}
+
+// safeReadFile reads a file scoped under rootDir using os.Root
+// to prevent directory traversal (G304).
+func safeReadFile(rootDir, path string) ([]byte, error) {
+	if filepath.IsAbs(path) {
+		rootDir = filepath.Dir(path)
+		path = filepath.Base(path)
+	} else if rootDir == "" {
+		rootDir = "."
+	}
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
 }
 
 // injectReadFile adds ctx.readFile(path) to the JS context.
@@ -372,8 +391,7 @@ func injectReadFile(
 			return goja.Null()
 		}
 		path := call.Arguments[0].String()
-		resolved := resolveScriptPath(jsCtx, path)
-		data, err := os.ReadFile(resolved)
+		data, err := safeReadFile(scriptDirFromCtx(jsCtx), path)
 		if err != nil {
 			return goja.Null()
 		}
