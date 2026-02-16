@@ -329,3 +329,146 @@ func TestFilenameToName(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureScriptID_GeneratesAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTestScript(t, dir, "noid.js", validScript)
+
+	data, _ := os.ReadFile(path)
+	source := string(data)
+	meta, _, err := ParseHeader(source)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if meta.ID != "" {
+		t.Fatal("ID should be empty before backfill")
+	}
+
+	id, err := ensureScriptID(path, meta, source)
+	if err != nil {
+		t.Fatalf("ensureScriptID: %v", err)
+	}
+	if id == "" {
+		t.Fatal("generated ID should not be empty")
+	}
+	if len(id) != 16 { // 8 bytes = 16 hex chars
+		t.Errorf("expected 16-char hex ID, got %d chars: %q", len(id), id)
+	}
+	if meta.ID != id {
+		t.Errorf("meta.ID should be set to %q, got %q", id, meta.ID)
+	}
+
+	// Re-read file and verify ID is persisted.
+	data, _ = os.ReadFile(path)
+	reparsed, _, err := ParseHeader(string(data))
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	if reparsed.ID != id {
+		t.Errorf("reparsed ID = %q, want %q", reparsed.ID, id)
+	}
+}
+
+func TestEnsureScriptID_PreservesExisting(t *testing.T) {
+	script := `// ---
+// id: abc123def456
+// name: Has ID
+// match:
+//   - "*"
+// ---
+
+function onRequest(ctx) {}
+`
+	dir := t.TempDir()
+	path := writeTestScript(t, dir, "hasid.js", script)
+
+	meta, _, err := ParseHeader(script)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if meta.ID != "abc123def456" {
+		t.Fatalf("ID should be parsed, got %q", meta.ID)
+	}
+
+	id, err := ensureScriptID(path, meta, script)
+	if err != nil {
+		t.Fatalf("ensureScriptID: %v", err)
+	}
+	if id != "abc123def456" {
+		t.Errorf("should preserve existing ID, got %q", id)
+	}
+}
+
+func TestLoadDir_BackfillsID(t *testing.T) {
+	dir := t.TempDir()
+	writeTestScript(t, dir, "test.js", validScript)
+
+	scripts, errs := LoadDir(dir)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errs: %v", errs)
+	}
+	if len(scripts) != 1 {
+		t.Fatalf("got %d scripts, want 1", len(scripts))
+	}
+
+	if scripts[0].Meta.ID == "" {
+		t.Error("LoadDir should backfill ID")
+	}
+
+	// Re-read the file to ensure ID is written to disk.
+	data, _ := os.ReadFile(filepath.Join(dir, "test.js"))
+	if !strings.Contains(string(data), "// id: ") {
+		t.Error("file should contain backfilled id line")
+	}
+}
+
+func TestScriptMeta_IDField(t *testing.T) {
+	script := `// ---
+// id: deadbeef01234567
+// name: ID Test
+// match:
+//   - "*"
+// ---
+
+function onRequest(ctx) {}
+`
+	meta, _, err := ParseHeader(script)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if meta.ID != "deadbeef01234567" {
+		t.Errorf("ID = %q, want %q", meta.ID, "deadbeef01234567")
+	}
+}
+
+func TestNewScriptTemplate_HasID(t *testing.T) {
+	tmpl := NewScriptTemplate()
+	meta, _, err := ParseHeader(tmpl)
+	if err != nil {
+		t.Fatalf("parse template: %v", err)
+	}
+	if meta.ID == "" {
+		t.Error("template should have an ID")
+	}
+	if len(meta.ID) != 16 {
+		t.Errorf("expected 16-char hex ID, got %d chars", len(meta.ID))
+	}
+}
+
+func TestCreateMapLocalScript_HasID(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "scripts")
+
+	path, err := CreateMapLocalScript(dir, "*://api.example.com/*", "./mock.json")
+	if err != nil {
+		t.Fatalf("CreateMapLocalScript: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	meta, _, parseErr := ParseHeader(string(data))
+	if parseErr != nil {
+		t.Fatalf("parse: %v", parseErr)
+	}
+	if meta.ID == "" {
+		t.Error("map-local script should have an ID")
+	}
+}

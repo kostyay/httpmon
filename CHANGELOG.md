@@ -1,6 +1,16 @@
 # Changelog
 
-## feat/process-identification
+## feat/mcp-server
+
+An MCP (Model Context Protocol) server lets LLM agents debug HTTP traffic
+programmatically alongside the TUI. Fourteen tools span read-only inspection
+(`list_requests`, `search_requests`, `export_har`), traffic simulation
+(`replay_request`, `mock_response`, `set_throttle`), and script management
+(`create_script`, `toggle_script`, `delete_script`). Bearer token auth with a
+crypto-random 32-byte hex token protects the localhost-only endpoint. Scripts
+use opaque IDs instead of file paths, and all gosec findings are resolved.
+
+## [feat/process-identification](https://github.com/kostyay/httpmon/pull/19) - 2026-02-16
 
 Each proxied request now shows which OS process initiated it (#19). A new
 `internal/procinfo` package resolves PID and process name asynchronously via

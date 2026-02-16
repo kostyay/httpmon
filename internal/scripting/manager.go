@@ -24,6 +24,7 @@ func (m *Manager) Scripts() []ScriptInfo {
 	infos := make([]ScriptInfo, 0, len(valid)+len(errored))
 	for _, sf := range valid {
 		infos = append(infos, ScriptInfo{
+			ID:         sf.Meta.ID,
 			Name:       sf.Meta.Name,
 			Matches:    sf.Meta.Match,
 			FilePath:   sf.FilePath,
@@ -40,6 +41,16 @@ func (m *Manager) Scripts() []ScriptInfo {
 	}
 
 	return infos
+}
+
+// ScriptByID finds a script by its unique ID.
+func (m *Manager) ScriptByID(id string) (ScriptInfo, bool) {
+	for _, info := range m.Scripts() {
+		if info.ID == id {
+			return info, true
+		}
+	}
+	return ScriptInfo{}, false
 }
 
 // Toggle flips the enabled state of a script file and reloads the engine.

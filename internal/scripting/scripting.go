@@ -523,6 +523,7 @@ func DetectCategories(source string) []ScriptCategory {
 
 // ScriptInfo describes a loaded script for TUI display.
 type ScriptInfo struct {
+	ID         string
 	Name       string
 	Matches    []string
 	Enabled    bool
