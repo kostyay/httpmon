@@ -10,11 +10,12 @@ import (
 
 // Column widths
 const (
-	colMethod = 7
-	colStatus = 6
-	colType   = 12
-	colDur    = 8
-	colSize   = 8
+	colMethod  = 7
+	colStatus  = 6
+	colProcess = 15
+	colType    = 12
+	colDur     = 8
+	colSize    = 8
 )
 
 func (a *App) viewList() string {
@@ -34,12 +35,13 @@ func (a *App) viewFlatList() string {
 	a.writeFilterBar(&b)
 
 	hostW, pathW := a.columnWidths()
-	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %*s %*s",
+	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %-*s %*s %*s",
 		colMethod, "METHOD",
 		colStatus, "STATUS",
 		hostW, "HOST",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -62,11 +64,12 @@ func (a *App) viewTreeList() string {
 	a.writeFilterBar(&b)
 
 	pathW := a.treePathWidth()
-	hdr := fmt.Sprintf("    %-*s %-*s %-*s %-*s %*s %*s",
+	hdr := fmt.Sprintf("    %-*s %-*s %-*s %-*s %-*s %*s %*s",
 		colMethod, "METHOD",
 		colStatus, "STATUS",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -87,17 +90,18 @@ func (a *App) viewFocusList() string {
 	var b strings.Builder
 
 	// Focus header replaces filter bar.
-	b.WriteString(styleHeader.Render(fmt.Sprintf("[%s]", a.focusHost)))
+	b.WriteString(styleHeader.Render(fmt.Sprintf("[%s]", a.focusKey)))
 	b.WriteString("  ")
 	b.WriteString(styleMuted.Render("Esc to unfocus"))
 	b.WriteString("\n")
 
 	pathW := a.focusPathWidth()
-	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s %*s",
+	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %*s %*s",
 		colMethod, "METHOD",
 		colStatus, "STATUS",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -108,7 +112,8 @@ func (a *App) viewFocusList() string {
 	}
 
 	a.writeRows(&b, len(a.treeRows), func(i int) string {
-		return renderFlowColumns(a.treeRows[i].Flow, pathW, "")
+		f := a.treeRows[i].Flow
+		return renderFlowColumns(f, pathW, "", truncPad(processLabel(f.Process, f.ProcessPID), colProcess))
 	})
 
 	return b.String()
@@ -180,7 +185,7 @@ func (a *App) writeFilterBar(b *strings.Builder) {
 }
 
 func (a *App) columnWidths() (hostW, pathW int) {
-	fixed := colMethod + colStatus + colType + colDur + colSize + 6 // 6 spaces between columns
+	fixed := colMethod + colStatus + colProcess + colType + colDur + colSize + 7 // 7 spaces between columns
 	remaining := max(a.width-fixed, 20)
 	hostW = remaining * 40 / 100
 	pathW = remaining - hostW
@@ -189,40 +194,54 @@ func (a *App) columnWidths() (hostW, pathW int) {
 
 // treePathWidth returns path column width for tree mode (no HOST column, 4-char indent).
 func (a *App) treePathWidth() int {
-	fixed := 4 + colMethod + colStatus + colType + colDur + colSize + 5 // indent + gaps
+	fixed := 4 + colMethod + colStatus + colProcess + colType + colDur + colSize + 6 // indent + gaps
 	return max(a.width-fixed, 10)
 }
 
 // focusPathWidth returns path column width for focus mode (no HOST, no indent).
 func (a *App) focusPathWidth() int {
-	fixed := colMethod + colStatus + colType + colDur + colSize + 5 // gaps
+	fixed := colMethod + colStatus + colProcess + colType + colDur + colSize + 6 // gaps
 	return max(a.width-fixed, 10)
 }
 
-func (a *App) renderTreeRow(row treeRow, pathW int) string {
-	if row.IsHost {
-		return a.renderHostNode(row.Host)
+// processLabel returns "name(pid)" or just name if pid is 0, or em dash if empty.
+func processLabel(proc string, pid int32) string {
+	if proc == "" {
+		return "\u2014"
 	}
-	return "    " + renderFlowColumns(row.Flow, pathW, "")
+	if pid > 0 {
+		return fmt.Sprintf("%s(%d)", proc, pid)
+	}
+	return proc
 }
 
-func (a *App) renderHostNode(host string) string {
+func (a *App) renderTreeRow(row treeRow, pathW int) string {
+	if row.IsHeader {
+		return a.renderGroupNode(row.GroupKey)
+	}
+	proc := processLabel(row.Flow.Process, row.Flow.ProcessPID)
+	return "    " + renderFlowColumns(row.Flow, pathW, "", truncPad(proc, colProcess))
+}
+
+func (a *App) renderGroupNode(key string) string {
 	icon := "▸"
-	if a.hostExpanded[host] {
+	if a.groupExpanded[key] {
 		icon = "▾"
 	}
+	keyFn := a.treeKeyFn()
 	count := 0
 	for _, f := range a.flows {
-		if f.Host == host {
+		if keyFn(f) == key {
 			count++
 		}
 	}
-	return fmt.Sprintf("%s %s (%d)", icon, host, count)
+	return fmt.Sprintf("%s %s (%d)", icon, key, count)
 }
 
-// renderFlowColumns formats method/status/path/dur/size columns.
-// If hostCol is non-empty it is inserted between status and path (flat mode).
-func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string) string {
+// renderFlowColumns formats method/status/host?/path/type/process/dur/size columns.
+// hostCol is inserted between status and path when non-empty.
+// processCol is inserted after type when non-empty.
+func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string, processCol string) string {
 	method := styleMethod.Render(fmt.Sprintf("%-*s", colMethod, f.Method))
 
 	var status string
@@ -244,14 +263,21 @@ func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string) string {
 
 	size := fmt.Sprintf("%*s", colSize, formatSize(f.SizeBytes))
 
+	var cols []string
+	cols = append(cols, method, status)
 	if hostCol != "" {
-		return fmt.Sprintf("%s %s %s %s %s %s %s", method, status, hostCol, path, ctype, dur, size)
+		cols = append(cols, hostCol)
 	}
-	return fmt.Sprintf("%s %s %s %s %s %s", method, status, path, ctype, dur, size)
+	cols = append(cols, path, ctype)
+	if processCol != "" {
+		cols = append(cols, processCol)
+	}
+	cols = append(cols, dur, size)
+	return strings.Join(cols, " ")
 }
 
 func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
-	return renderFlowColumns(f, pathW, truncPad(f.Host, hostW))
+	return renderFlowColumns(f, pathW, truncPad(f.Host, hostW), truncPad(processLabel(f.Process, f.ProcessPID), colProcess))
 }
 
 func formatDuration(d time.Duration) string {

@@ -29,9 +29,9 @@ func helpGroups() []helpGroup {
 		{
 			title: "List View",
 			bindings: []helpBinding{
-				{"t", "Toggle flat/tree mode"},
-				{"f", "Focus host (tree mode)"},
-				{"l/h  →/←", "Expand/collapse host"},
+				{"t", "Cycle flat/host/process tree"},
+				{"f", "Focus group (tree mode)"},
+				{"l/h  →/←", "Expand/collapse group"},
 			},
 		},
 		{

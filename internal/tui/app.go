@@ -28,6 +28,12 @@ const (
 	modeFocus = 2
 )
 
+// treeGroupBy constants
+const (
+	groupByHost    = 0
+	groupByProcess = 1
+)
+
 type App struct {
 	store FlowReader
 	proxy ProxyInfo
@@ -48,10 +54,11 @@ type App struct {
 	storeFilter store.Filter // nil = match all
 
 	// tree view state
-	listMode     int             // modeFlat, modeTree, modeFocus
-	focusHost    string          // active host in focus mode
-	hostExpanded map[string]bool // expand state per host
-	treeRows     []treeRow       // flattened visible rows for cursor addressing
+	listMode      int             // modeFlat, modeTree, modeFocus
+	treeGroupBy   int             // groupByHost, groupByProcess
+	focusKey      string          // active group key in focus mode
+	groupExpanded map[string]bool // expand state per group
+	treeRows      []treeRow       // flattened visible rows for cursor addressing
 
 	// action menu
 	showMenu   bool
@@ -96,26 +103,26 @@ type App struct {
 	throttleCursor int
 
 	// breakpoint editor
-	breakpoints          breakpoint.Controller
-	showBreakpointQueue  bool
-	breakpointCursor     int
-	breakpointPending    []breakpoint.BreakpointHit
-	editingBreakpoint    *breakpoint.BreakpointHit
-	bpHeadersTA          textarea.Model
-	bpBodyTA             textarea.Model
-	bpFocusedPane        int
-	breakpointHitCount   int
-	breakpointSub        <-chan breakpoint.BreakpointHit
+	breakpoints         breakpoint.Controller
+	showBreakpointQueue bool
+	breakpointCursor    int
+	breakpointPending   []breakpoint.BreakpointHit
+	editingBreakpoint   *breakpoint.BreakpointHit
+	bpHeadersTA         textarea.Model
+	bpBodyTA            textarea.Model
+	bpFocusedPane       int
+	breakpointHitCount  int
+	breakpointSub       <-chan breakpoint.BreakpointHit
 
 	// detail search
-	detailSearch    bool
-	searchInput     textinput.Model
-	searchQuery     string
+	detailSearch     bool
+	searchInput      textinput.Model
+	searchQuery      string
 	searchMatchCount int
 	searchMatchIdx   int
 
 	// detail view state
-	detailTab          int             // 0=request, 1=response
+	detailTab          int // 0=request, 1=response
 	detailVP           viewport.Model
 	detailReady        bool
 	detailRaw          bool            // false=pretty-print, true=raw
@@ -154,7 +161,7 @@ func NewApp(cfg AppConfig) *App {
 		throttle:        cfg.Throttle,
 		filterInput:     ti,
 		searchInput:     si,
-		hostExpanded:    make(map[string]bool),
+		groupExpanded:   make(map[string]bool),
 		detailCollapsed: make(map[string]bool),
 		breakpoints:     cfg.Breakpoints,
 	}
@@ -293,16 +300,15 @@ func (a *App) refreshFlows() {
 	a.flows, a.totalFlows = a.store.List(a.storeFilter, 0, limit)
 
 	if a.listMode != modeFlat {
-		groups := buildHostGroups(a.flows)
+		groups := buildGroups(a.flows, a.treeKeyFn())
 		switch a.listMode {
 		case modeTree:
-			a.treeRows = flattenTree(groups, a.hostExpanded)
+			a.treeRows = flattenTree(groups, a.groupExpanded)
 		case modeFocus:
-			a.treeRows = flattenFocus(groups, a.focusHost)
+			a.treeRows = flattenFocus(groups, a.focusKey)
 			if len(a.treeRows) == 0 {
-				// focused host disappeared (evicted or filtered out) — back to tree
 				a.listMode = modeTree
-				a.treeRows = flattenTree(groups, a.hostExpanded)
+				a.treeRows = flattenTree(groups, a.groupExpanded)
 			}
 		}
 	}
@@ -444,6 +450,7 @@ func (a *App) updateFlatList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "t":
 		a.listMode = modeTree
+		a.treeGroupBy = groupByHost
 		a.selectedIdx = 0
 		a.listOffset = 0
 		a.refreshFlows()
@@ -460,33 +467,38 @@ func (a *App) updateFlatList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a *App) updateTreeList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "t":
-		a.listMode = modeFlat
+		if a.treeGroupBy == groupByHost {
+			a.treeGroupBy = groupByProcess
+		} else {
+			a.listMode = modeFlat
+		}
 		a.selectedIdx = 0
 		a.listOffset = 0
+		a.refreshFlows()
 	case "x":
 		return a, a.initExport(false)
 	case "right", "l":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
-			if row.IsHost {
-				a.hostExpanded[row.Host] = true
+			if row.IsHeader {
+				a.groupExpanded[row.GroupKey] = true
 				a.refreshFlows()
 			}
 		}
 	case "left", "h":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
-			if row.IsHost {
-				a.hostExpanded[row.Host] = false
+			if row.IsHeader {
+				a.groupExpanded[row.GroupKey] = false
 				a.refreshFlows()
 			} else {
-				a.jumpToParentHost(row.Host)
+				a.jumpToParentGroup(row.GroupKey)
 			}
 		}
 	case "f":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
-			a.focusHost = row.Host
+			a.focusKey = row.GroupKey
 			a.listMode = modeFocus
 			a.selectedIdx = 0
 			a.refreshFlows()
@@ -494,8 +506,8 @@ func (a *App) updateTreeList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if a.selectedIdx < len(a.treeRows) {
 			row := a.treeRows[a.selectedIdx]
-			if row.IsHost {
-				a.hostExpanded[row.Host] = !a.hostExpanded[row.Host]
+			if row.IsHeader {
+				a.groupExpanded[row.GroupKey] = !a.groupExpanded[row.GroupKey]
 				a.refreshFlows()
 			} else {
 				a.openFlowDetail(row.Flow.ID)
@@ -526,10 +538,18 @@ func (a *App) updateFocusList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// jumpToParentHost moves cursor to the host node for the given host.
-func (a *App) jumpToParentHost(host string) {
+// treeKeyFn returns the grouping function for the current tree mode.
+func (a *App) treeKeyFn() func(store.FlowMeta) string {
+	if a.treeGroupBy == groupByProcess {
+		return processKey
+	}
+	return hostKey
+}
+
+// jumpToParentGroup moves cursor to the group header for the given key.
+func (a *App) jumpToParentGroup(key string) {
 	for i, row := range a.treeRows {
-		if row.IsHost && row.Host == host {
+		if row.IsHeader && row.GroupKey == key {
 			a.selectedIdx = i
 			return
 		}
@@ -799,11 +819,15 @@ func (a *App) statusText() string {
 	var help string
 	switch a.listMode {
 	case modeTree:
-		help = "t:flat  f:focus  /:filter  Space:actions"
+		if a.treeGroupBy == groupByHost {
+			help = "t:proc  f:focus  /:filter  Space:actions"
+		} else {
+			help = "t:flat  f:focus  /:filter  Space:actions"
+		}
 	case modeFocus:
 		help = "t:flat  Esc:unfocus  /:filter  Space:actions"
 	default:
-		help = "t:tree  /:filter  Space:actions"
+		help = "t:host  /:filter  Space:actions"
 	}
 
 	gap := max(a.width-len(warning)-len(info)-len(help), 2)

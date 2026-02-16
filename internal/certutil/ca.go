@@ -17,8 +17,8 @@ const (
 	CAName = "httpmon-ca"
 
 	caFileName     = "mitmproxy-ca.pem"      // key + cert (what go-mitmproxy loads)
-	caCertFileName = "mitmproxy-ca-cert.pem"  // cert only (PEM)
-	caCertCerName  = "mitmproxy-ca-cert.cer"  // cert only (DER-compat)
+	caCertFileName = "mitmproxy-ca-cert.pem" // cert only (PEM)
+	caCertCerName  = "mitmproxy-ca-cert.cer" // cert only (DER-compat)
 )
 
 // EnsureCA creates the CA key+cert files in dir if they don't already exist

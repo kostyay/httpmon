@@ -94,9 +94,9 @@ func TestRegexFilter(t *testing.T) {
 
 func TestNegation(t *testing.T) {
 	tests := []struct {
-		name    string
-		filter  string
-		flow    *store.FlowMeta
+		name      string
+		filter    string
+		flow      *store.FlowMeta
 		wantMatch bool
 	}{
 		{"!m:GET blocks GET", "!m:GET", flow("GET", 200, "x.com", "/", ""), false},

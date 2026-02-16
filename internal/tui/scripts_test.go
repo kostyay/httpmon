@@ -22,10 +22,10 @@ type mockScriptManager struct {
 }
 
 func (m *mockScriptManager) Scripts() []scripting.ScriptInfo { return m.scripts }
-func (m *mockScriptManager) Toggle(fp string) error         { m.toggled = append(m.toggled, fp); return nil }
-func (m *mockScriptManager) Delete(fp string) error         { m.deleted = append(m.deleted, fp); return nil }
-func (m *mockScriptManager) CreateNew() (string, error)     { return m.createPath, m.createErr }
-func (m *mockScriptManager) ScriptDir() string              { return m.dir }
+func (m *mockScriptManager) Toggle(fp string) error          { m.toggled = append(m.toggled, fp); return nil }
+func (m *mockScriptManager) Delete(fp string) error          { m.deleted = append(m.deleted, fp); return nil }
+func (m *mockScriptManager) CreateNew() (string, error)      { return m.createPath, m.createErr }
+func (m *mockScriptManager) ScriptDir() string               { return m.dir }
 func (m *mockScriptManager) QuickAddMapLocal(pattern, localPath string) (string, error) {
 	return "/scripts/mock.js", nil
 }
