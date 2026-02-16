@@ -23,7 +23,7 @@ func (a *App) handleDiffMark() (tea.Model, tea.Cmd) {
 			currentID = a.flows[a.selectedIdx].ID
 		}
 	} else {
-		if a.selectedIdx < len(a.treeRows) && !a.treeRows[a.selectedIdx].IsHost {
+		if a.selectedIdx < len(a.treeRows) && !a.treeRows[a.selectedIdx].IsHeader {
 			currentID = a.treeRows[a.selectedIdx].Flow.ID
 		}
 	}

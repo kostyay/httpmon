@@ -133,6 +133,10 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 	}
 	b.WriteString("\n")
 
+	if data != nil && data.ProcessPID != 0 {
+		renderProcessSection(b, meta, data, collapsed["process"])
+	}
+
 	if data == nil {
 		return
 	}
@@ -201,6 +205,25 @@ func renderHeaders(b *strings.Builder, title string, h map[string][]string, coll
 			for _, v := range h[k] {
 				fmt.Fprintf(b, "  %s: %s\n", k, v)
 			}
+		}
+	}
+	b.WriteString("\n")
+}
+
+const maxCmdlineLen = 100
+
+func renderProcessSection(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, collapsed bool) {
+	b.WriteString(styleSection.Render(sectionIcon(collapsed) + " Process"))
+	b.WriteString("\n")
+	if !collapsed {
+		fmt.Fprintf(b, "  Name: %s\n", meta.Process)
+		fmt.Fprintf(b, "  PID:  %d\n", data.ProcessPID)
+		if data.ProcessCmdline != "" {
+			cmd := data.ProcessCmdline
+			if len(cmd) > maxCmdlineLen {
+				cmd = cmd[:maxCmdlineLen] + "..."
+			}
+			fmt.Fprintf(b, "  Cmd:  %s\n", cmd)
 		}
 	}
 	b.WriteString("\n")

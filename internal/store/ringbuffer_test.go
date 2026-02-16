@@ -205,6 +205,63 @@ func TestSetDataIgnoresEvicted(t *testing.T) {
 	}
 }
 
+func TestUpdateDataMergesIntoExisting(t *testing.T) {
+	rb := New(10)
+	rb.Add(makeMeta("f1"))
+	rb.SetData("f1", &FlowData{RequestBody: []byte("body")})
+
+	rb.UpdateData("f1", func(d *FlowData) {
+		d.ProcessPID = 42
+		d.ProcessCmdline = "curl https://example.com"
+	})
+
+	_, data, err := rb.Get("f1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if string(data.RequestBody) != "body" {
+		t.Errorf("RequestBody = %q, want body", data.RequestBody)
+	}
+	if data.ProcessPID != 42 {
+		t.Errorf("ProcessPID = %d, want 42", data.ProcessPID)
+	}
+	if data.ProcessCmdline != "curl https://example.com" {
+		t.Errorf("ProcessCmdline = %q, want curl...", data.ProcessCmdline)
+	}
+}
+
+func TestUpdateDataCreatesWhenMissing(t *testing.T) {
+	rb := New(10)
+	rb.Add(makeMeta("f1"))
+
+	rb.UpdateData("f1", func(d *FlowData) {
+		d.ProcessPID = 99
+	})
+
+	_, data, err := rb.Get("f1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if data == nil {
+		t.Fatal("data should not be nil after UpdateData")
+	}
+	if data.ProcessPID != 99 {
+		t.Errorf("ProcessPID = %d, want 99", data.ProcessPID)
+	}
+}
+
+func TestUpdateDataIgnoresEvicted(t *testing.T) {
+	rb := New(2)
+	rb.Add(makeMeta("f1"))
+	rb.Add(makeMeta("f2"))
+	rb.Add(makeMeta("f3")) // evicts f1
+
+	// should not panic
+	rb.UpdateData("f1", func(d *FlowData) {
+		d.ProcessPID = 42
+	})
+}
+
 func TestUpdateIgnoresEvicted(t *testing.T) {
 	rb := New(2)
 	rb.Add(makeMeta("f1"))

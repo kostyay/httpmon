@@ -15,6 +15,7 @@ import (
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
@@ -50,6 +51,7 @@ func main() {
 
 	s := store.New(*bufSize)
 	p := proxy.New(s, *dataDir)
+	p.Resolver = procinfo.New(s)
 
 	// Init scripting engine and breakpoint controller.
 	scriptsDir := filepath.Join(*dataDir, "scripts")

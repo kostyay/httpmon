@@ -7,31 +7,39 @@ import (
 	"github.com/kostyay/httpmon/internal/store"
 )
 
-// hostGroup groups flows by host for tree view rendering.
-type hostGroup struct {
-	Host   string
+// flowGroup groups flows by an arbitrary key for tree view rendering.
+type flowGroup struct {
+	Key    string
 	Flows  []store.FlowMeta
 	Newest time.Time
 }
 
 // treeRow is a cursor-addressable row in the flattened tree.
 type treeRow struct {
-	IsHost bool           // true = host node, false = flow row
-	Host   string         // host name (always set)
-	Flow   store.FlowMeta // only valid when IsHost == false
+	IsHeader bool           // true = group header, false = flow row
+	GroupKey string         // group key (always set)
+	Flow     store.FlowMeta // only valid when IsHeader == false
 }
 
-// buildHostGroups groups flows by host, sorted by most recent activity.
-func buildHostGroups(flows []store.FlowMeta) []hostGroup {
-	byHost := make(map[string]*hostGroup)
+// Key extractors for grouping.
+func hostKey(f store.FlowMeta) string    { return f.Host }
+func processKey(f store.FlowMeta) string { return f.Process }
+
+// buildGroups groups flows by keyFn, sorted by most recent activity.
+func buildGroups(
+	flows []store.FlowMeta,
+	keyFn func(store.FlowMeta) string,
+) []flowGroup {
+	byKey := make(map[string]*flowGroup)
 	var order []string
 
 	for _, f := range flows {
-		g, ok := byHost[f.Host]
+		k := keyFn(f)
+		g, ok := byKey[k]
 		if !ok {
-			g = &hostGroup{Host: f.Host}
-			byHost[f.Host] = g
-			order = append(order, f.Host)
+			g = &flowGroup{Key: k}
+			byKey[k] = g
+			order = append(order, k)
 		}
 		g.Flows = append(g.Flows, f)
 		if f.StartedAt.After(g.Newest) {
@@ -39,9 +47,9 @@ func buildHostGroups(flows []store.FlowMeta) []hostGroup {
 		}
 	}
 
-	groups := make([]hostGroup, 0, len(byHost))
-	for _, h := range order {
-		groups = append(groups, *byHost[h])
+	groups := make([]flowGroup, 0, len(byKey))
+	for _, k := range order {
+		groups = append(groups, *byKey[k])
 	}
 
 	sort.Slice(groups, func(i, j int) bool {
@@ -51,27 +59,27 @@ func buildHostGroups(flows []store.FlowMeta) []hostGroup {
 	return groups
 }
 
-// flattenTree converts host groups into cursor-addressable rows based on expand state.
-func flattenTree(groups []hostGroup, expanded map[string]bool) []treeRow {
+// flattenTree converts groups into cursor-addressable rows based on expand state.
+func flattenTree(groups []flowGroup, expanded map[string]bool) []treeRow {
 	var rows []treeRow
 	for _, g := range groups {
-		rows = append(rows, treeRow{IsHost: true, Host: g.Host})
-		if expanded[g.Host] {
+		rows = append(rows, treeRow{IsHeader: true, GroupKey: g.Key})
+		if expanded[g.Key] {
 			for _, f := range g.Flows {
-				rows = append(rows, treeRow{IsHost: false, Host: g.Host, Flow: f})
+				rows = append(rows, treeRow{IsHeader: false, GroupKey: g.Key, Flow: f})
 			}
 		}
 	}
 	return rows
 }
 
-// flattenFocus returns rows for a single focused host (no host node row).
-func flattenFocus(groups []hostGroup, host string) []treeRow {
+// flattenFocus returns rows for a single focused group (no header row).
+func flattenFocus(groups []flowGroup, key string) []treeRow {
 	for _, g := range groups {
-		if g.Host == host {
+		if g.Key == key {
 			rows := make([]treeRow, len(g.Flows))
 			for i, f := range g.Flows {
-				rows[i] = treeRow{IsHost: false, Host: g.Host, Flow: f}
+				rows[i] = treeRow{IsHeader: false, GroupKey: g.Key, Flow: f}
 			}
 			return rows
 		}
