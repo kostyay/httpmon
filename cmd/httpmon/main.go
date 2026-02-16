@@ -28,7 +28,6 @@ import (
 var version = "dev"
 
 func main() {
-	// Flags handled by config.ApplyFlags: port, buffer-size, mcp, mcp-addr, throttle.
 	flag.Int("port", 8080, "proxy listen port")
 	dataDir := flag.String("data-dir", defaultDataDir(), "data directory for CA certs")
 	flag.Int("buffer-size", 10000, "max flows in memory")
@@ -48,12 +47,12 @@ func main() {
 		return
 	}
 
-	// Load persistent config, then overlay explicitly-set CLI flags.
 	cfg, cfgErr := config.Load(*dataDir)
 	if cfgErr != nil {
 		fatal("config: %v", cfgErr)
 	}
 	config.ApplyFlags(cfg, flag.Visit)
+
 	// --mcp-addr implies --mcp.
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "mcp-addr" {
@@ -80,7 +79,6 @@ func main() {
 	p := proxy.New(s, *dataDir)
 	p.Resolver = procinfo.New(s)
 
-	// Init scripting engine and breakpoint controller.
 	scriptsDir := filepath.Join(*dataDir, "scripts")
 	engine := scripting.New()
 	engine.LoadFromDir(scriptsDir)
@@ -94,7 +92,6 @@ func main() {
 		p.HostFilter = hostfilter.New(block, allow)
 	}
 
-	// Throttle configuration.
 	if cfg.ThrottlePreset != "" {
 		bps := throttle.PresetBandwidth(cfg.ThrottlePreset)
 		if bps == 0 {
@@ -130,7 +127,6 @@ func main() {
 	caTrusted := certutil.IsInstalled(p.CACertPath())
 	mgr := scripting.NewManager(engine, scriptsDir)
 
-	// MCP server (optional).
 	var mcpSrv *mcpserver.Server
 	if cfg.MCPEnabled {
 		if err := config.LoadOrCreateToken(cfg, *dataDir); err != nil {

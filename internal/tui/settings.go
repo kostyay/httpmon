@@ -108,12 +108,7 @@ func (a *App) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		f := settingsFields[a.settingsCursor]
 		switch f.kind {
 		case "bool":
-			cur := f.get(a.settingsConfig)
-			if cur == "true" {
-				f.set(a.settingsConfig, "false")
-			} else {
-				f.set(a.settingsConfig, "true")
-			}
+			f.set(a.settingsConfig, strconv.FormatBool(f.get(a.settingsConfig) != "true"))
 		case "enum":
 			cur := f.get(a.settingsConfig)
 			idx := 0
@@ -156,6 +151,25 @@ func (a *App) updateSettingsInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+// settingsFieldDisplay returns the rendered display string for a single settings field.
+func (a *App) settingsFieldDisplay(f settingsField, val string, idx int) string {
+	if a.settingsEditing && idx == a.settingsCursor {
+		return a.settingsInput.View()
+	}
+	switch f.kind {
+	case "bool":
+		if val == "true" {
+			return styleEnabled.Render("on")
+		}
+		return styleMuted.Render("off")
+	default:
+		if val == "" {
+			return styleMuted.Render("(default)")
+		}
+		return val
+	}
+}
+
 func (a *App) viewSettings() string {
 	var b strings.Builder
 
@@ -168,23 +182,7 @@ func (a *App) viewSettings() string {
 			val = f.get(a.settingsConfig)
 		}
 
-		// Display value.
-		display := val
-		if display == "" {
-			display = styleMuted.Render("(default)")
-		}
-		if f.kind == "bool" {
-			if val == "true" {
-				display = styleEnabled.Render("on")
-			} else {
-				display = styleMuted.Render("off")
-			}
-		}
-
-		// Editing override.
-		if a.settingsEditing && i == a.settingsCursor {
-			display = a.settingsInput.View()
-		}
+		display := a.settingsFieldDisplay(f, val, i)
 
 		hint := ""
 		if f.restart {
@@ -193,7 +191,7 @@ func (a *App) viewSettings() string {
 
 		line := fmt.Sprintf(" %-18s %s%s", f.label, display, hint)
 		if i == a.settingsCursor && !a.settingsEditing {
-			line = styleMenuSelected.Render(fmt.Sprintf(" %-18s %s%s", f.label, display, hint))
+			line = styleMenuSelected.Render(line)
 		}
 
 		b.WriteString(line)

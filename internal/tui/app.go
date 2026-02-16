@@ -107,12 +107,12 @@ type App struct {
 	mcp MCPServer
 
 	// settings modal
-	dataDir        string
-	showSettings   bool
-	settingsCursor int
+	dataDir         string
+	showSettings    bool
+	settingsCursor  int
 	settingsEditing bool
-	settingsInput  textinput.Model
-	settingsConfig *config.Config
+	settingsInput   textinput.Model
+	settingsConfig  *config.Config
 
 	// breakpoint editor
 	breakpoints         breakpoint.Controller
