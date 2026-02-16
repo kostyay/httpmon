@@ -61,6 +61,7 @@ func (a *App) listMenuItems() []menuItem {
 	if a.breakpoints != nil {
 		items = append(items, menuItem{label: "Breakpoints", key: "B"})
 	}
+	items = append(items, menuItem{label: "Settings", key: "P"})
 	return items
 }
 
@@ -81,6 +82,7 @@ func (a *App) detailMenuItems() []menuItem {
 	if a.throttle != nil {
 		items = append(items, menuItem{label: "Throttle", key: "T"})
 	}
+	items = append(items, menuItem{label: "Settings", key: "P"})
 	return items
 }
 
