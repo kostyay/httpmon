@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kostyay/httpmon/internal/breakpoint"
+	"github.com/kostyay/httpmon/internal/config"
 	"github.com/kostyay/httpmon/internal/filter"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
@@ -105,6 +106,14 @@ type App struct {
 	// MCP server
 	mcp MCPServer
 
+	// settings modal
+	dataDir        string
+	showSettings   bool
+	settingsCursor int
+	settingsEditing bool
+	settingsInput  textinput.Model
+	settingsConfig *config.Config
+
 	// breakpoint editor
 	breakpoints         breakpoint.Controller
 	showBreakpointQueue bool
@@ -165,6 +174,7 @@ func NewApp(cfg AppConfig) *App {
 		scripts:         cfg.Scripts,
 		throttle:        cfg.Throttle,
 		mcp:             cfg.MCP,
+		dataDir:         cfg.DataDir,
 		filterInput:     ti,
 		searchInput:     si,
 		groupExpanded:   make(map[string]bool),
@@ -226,6 +236,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.showBreakpointQueue {
 			return a.updateBreakpoint(msg)
 		}
+		if a.showSettings {
+			return a.updateSettings(msg)
+		}
 		if a.showThrottle {
 			return a.updateThrottle(msg)
 		}
@@ -273,6 +286,8 @@ func (a *App) viewContent() string {
 		return a.viewDiff()
 	case a.showHelp:
 		return a.viewHelp()
+	case a.showSettings:
+		return a.viewSettings()
 	case a.showThrottle:
 		return a.viewThrottle()
 	case a.showScripts:
@@ -377,6 +392,9 @@ func (a *App) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.throttle != nil {
 			a.initThrottle()
 		}
+		return a, nil
+	case "P":
+		a.initSettings()
 		return a, nil
 	case "B":
 		if a.breakpoints != nil {
@@ -581,6 +599,9 @@ func (a *App) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.throttle != nil {
 			a.initThrottle()
 		}
+		return a, nil
+	case "P":
+		a.initSettings()
 		return a, nil
 	case "esc", "q":
 		a.showDetail = false
