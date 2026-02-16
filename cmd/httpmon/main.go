@@ -14,6 +14,7 @@ import (
 
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
+	"github.com/kostyay/httpmon/internal/config"
 	"github.com/kostyay/httpmon/internal/hostfilter"
 	"github.com/kostyay/httpmon/internal/mcpserver"
 	"github.com/kostyay/httpmon/internal/procinfo"
@@ -27,17 +28,18 @@ import (
 var version = "dev"
 
 func main() {
-	port := flag.Int("port", 8080, "proxy listen port")
+	// Flags handled by config.ApplyFlags: port, buffer-size, mcp, mcp-addr, throttle.
+	flag.Int("port", 8080, "proxy listen port")
 	dataDir := flag.String("data-dir", defaultDataDir(), "data directory for CA certs")
-	bufSize := flag.Int("buffer-size", 10000, "max flows in memory")
+	flag.Int("buffer-size", 10000, "max flows in memory")
 	blockHosts := flag.String("block", "", "comma-separated host patterns to block (wildcards: *.ads.com)")
 	allowHosts := flag.String("allow", "", "comma-separated host patterns to allow (only these intercepted)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
-	throttleFlag := flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
+	flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
 	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
-	mcpFlag := flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
-	mcpAddrFlag := flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
+	flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
+	flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
 	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
 	flag.Parse()
 
@@ -46,23 +48,35 @@ func main() {
 		return
 	}
 
+	// Load persistent config, then overlay explicitly-set CLI flags.
+	cfg, cfgErr := config.Load(*dataDir)
+	if cfgErr != nil {
+		fatal("config: %v", cfgErr)
+	}
+	config.ApplyFlags(cfg, flag.Visit)
+	// --mcp-addr implies --mcp.
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "mcp-addr" {
+			cfg.MCPEnabled = true
+		}
+	})
+
 	if *mcpTokenFlag {
-		token, err := mcpserver.LoadOrCreateToken(*dataDir)
-		if err != nil {
+		if err := config.LoadOrCreateToken(cfg, *dataDir); err != nil {
 			fatal("mcp token: %v", err)
 		}
-		fmt.Println(token)
+		fmt.Println(cfg.MCPToken)
 		return
 	}
 
-	if *port < 1 || *port > 65535 {
-		fatal("invalid port: %d", *port)
+	if cfg.ProxyPort < 1 || cfg.ProxyPort > 65535 {
+		fatal("invalid port: %d", cfg.ProxyPort)
 	}
-	if *bufSize < 1 {
+	if cfg.BufferSize < 1 {
 		fatal("buffer-size must be > 0")
 	}
 
-	s := store.New(*bufSize)
+	s := store.New(cfg.BufferSize)
 	p := proxy.New(s, *dataDir)
 	p.Resolver = procinfo.New(s)
 
@@ -81,10 +95,10 @@ func main() {
 	}
 
 	// Throttle configuration.
-	if *throttleFlag != "" {
-		bps := throttle.PresetBandwidth(*throttleFlag)
+	if cfg.ThrottlePreset != "" {
+		bps := throttle.PresetBandwidth(cfg.ThrottlePreset)
 		if bps == 0 {
-			fatal("unknown throttle preset: %q (use 3g, 4g, or wifi)", *throttleFlag)
+			fatal("unknown throttle preset: %q (use 3g, 4g, or wifi)", cfg.ThrottlePreset)
 		}
 		p.ThrottleBPS = bps
 	}
@@ -92,7 +106,7 @@ func main() {
 		p.ThrottleLatency = *latencyFlag
 	}
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
 	if err := p.Init(addr); err != nil {
 		fatal("proxy init: %v", err)
 	}
@@ -117,34 +131,26 @@ func main() {
 	mgr := scripting.NewManager(engine, scriptsDir)
 
 	// MCP server (optional).
-	if *mcpAddrFlag != "" {
-		*mcpFlag = true
-	}
 	var mcpSrv *mcpserver.Server
-	if *mcpFlag {
-		mcpAddr := *mcpAddrFlag
-		if mcpAddr == "" {
-			mcpAddr = mcpserver.DefaultAddr
-		}
-		token, tokenErr := mcpserver.LoadOrCreateToken(*dataDir)
-		if tokenErr != nil {
-			fatal("mcp token: %v", tokenErr)
+	if cfg.MCPEnabled {
+		if err := config.LoadOrCreateToken(cfg, *dataDir); err != nil {
+			fatal("mcp token: %v", err)
 		}
 		mcpSrv = mcpserver.New(mcpserver.Config{
 			Store:    s,
 			Proxy:    p,
 			Scripts:  mgr,
 			Throttle: p,
-			Addr:     mcpAddr,
-			Token:    token,
+			Addr:     cfg.MCPAddr,
+			Token:    cfg.MCPToken,
 		})
 		if err := mcpSrv.Start(ctx); err != nil {
 			fatal("mcp server: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), token)
+		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), cfg.MCPToken)
 	}
 
-	cfg := tui.AppConfig{
+	tuiCfg := tui.AppConfig{
 		Store:       s,
 		Proxy:       p,
 		CATrusted:   caTrusted,
@@ -152,8 +158,9 @@ func main() {
 		Throttle:    p,
 		Breakpoints: bpCtrl,
 		MCP:         mcpSrv,
+		DataDir:     *dataDir,
 	}
-	app := tui.NewApp(cfg)
+	app := tui.NewApp(tuiCfg)
 	prog := tea.NewProgram(app)
 	if _, err := prog.Run(); err != nil {
 		fatal("TUI error: %v", err)
