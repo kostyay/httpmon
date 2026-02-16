@@ -166,7 +166,7 @@ func TestMCP_ExportHAR(t *testing.T) {
 
 	var har struct {
 		Log struct {
-			Version string           `json:"version"`
+			Version string            `json:"version"`
 			Entries []json.RawMessage `json:"entries"`
 		} `json:"log"`
 	}
