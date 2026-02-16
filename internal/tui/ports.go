@@ -35,3 +35,9 @@ type ThrottleController interface {
 	GetThrottleBPS() int64
 	GetThrottleLatency() time.Duration
 }
+
+// MCPServer exposes MCP server status to the TUI.
+type MCPServer interface {
+	Running() bool
+	Port() int
+}

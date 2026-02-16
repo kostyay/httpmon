@@ -102,6 +102,9 @@ type App struct {
 	showThrottle   bool
 	throttleCursor int
 
+	// MCP server
+	mcp MCPServer
+
 	// breakpoint editor
 	breakpoints         breakpoint.Controller
 	showBreakpointQueue bool
@@ -141,6 +144,7 @@ type AppConfig struct {
 	Scripts     ScriptManager
 	Throttle    ThrottleController
 	Breakpoints breakpoint.Controller
+	MCP         MCPServer
 }
 
 // NewApp creates a TUI application from the given config.
@@ -159,6 +163,7 @@ func NewApp(cfg AppConfig) *App {
 		caTrusted:       cfg.CATrusted,
 		scripts:         cfg.Scripts,
 		throttle:        cfg.Throttle,
+		mcp:             cfg.MCP,
 		filterInput:     ti,
 		searchInput:     si,
 		groupExpanded:   make(map[string]bool),
@@ -807,6 +812,9 @@ func (a *App) statusText() string {
 	}
 
 	info := fmt.Sprintf("%d flows | Proxy %s", a.totalFlows, addr)
+	if a.mcp != nil && a.mcp.Running() {
+		info += fmt.Sprintf(" | MCP :%d", a.mcp.Port())
+	}
 	if label := a.throttleStatusLabel(); label != "" {
 		info += " | " + styleWarning.Render("Throttle: "+label)
 	}
