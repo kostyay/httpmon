@@ -60,7 +60,7 @@ func (a *App) repeatRequest() tea.Cmd {
 			},
 		}
 
-		resp, err := client.Do(req)
+		resp, err := client.Do(req) // #nosec G704 -- user-initiated replay of captured request
 		if err != nil {
 			return tea.Printf("Repeat failed: %v", err)
 		}
