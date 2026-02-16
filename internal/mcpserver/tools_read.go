@@ -114,16 +114,16 @@ func (s *Server) handleGetRequest(
 		if in.Dump {
 			// Write bodies to temp files (safe: os.CreateTemp always uses os.TempDir).
 			if len(data.RequestBody) > 0 {
-				if f, err := os.CreateTemp("", in.ID+"-req-*.bin"); err == nil {
+				if f, err := os.CreateTemp("", in.ID+"-req-*.bin"); err == nil { //#nosec G703 -- f.Name() from os.CreateTemp
 					_, _ = f.Write(data.RequestBody)
-					f.Close()
+					_ = f.Close()
 					result["request_body_path"] = f.Name()
 				}
 			}
 			if len(data.ResponseBody) > 0 {
-				if f, err := os.CreateTemp("", in.ID+"-resp-*.bin"); err == nil {
+				if f, err := os.CreateTemp("", in.ID+"-resp-*.bin"); err == nil { //#nosec G703 -- f.Name() from os.CreateTemp
 					_, _ = f.Write(data.ResponseBody)
-					f.Close()
+					_ = f.Close()
 					result["response_body_path"] = f.Name()
 				}
 			}

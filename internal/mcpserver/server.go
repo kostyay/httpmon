@@ -108,7 +108,10 @@ func (s *Server) Start(ctx context.Context) error {
 	var handler http.Handler = s.handler
 	handler = bearerAuthMiddleware(s.cfg.Token, handler)
 
-	s.srv = &http.Server{Handler: handler}
+	s.srv = &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	s.running = true
 
 	go func() {
@@ -117,9 +120,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	go func() {
-		if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			// Log but don't crash.
-		}
+		_ = s.srv.Serve(ln) // ErrServerClosed on graceful shutdown; other errors are non-recoverable.
 	}()
 
 	return nil

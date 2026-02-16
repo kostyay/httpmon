@@ -139,7 +139,7 @@ func (s *Server) handleReplayRequest(
 	client := &http.Client{
 		Transport: &http.Transport{
 			Proxy:           http.ProxyURL(proxyURL),
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // proxy MITM CA
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //#nosec G402 -- proxy MITM CA
 		},
 		Timeout: 30 * time.Second,
 	}
@@ -157,7 +157,7 @@ func (s *Server) handleReplayRequest(
 		req.Header.Set(k, v)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //#nosec G704 -- replay tool sends user-specified URLs through proxy by design
 	if err != nil {
 		return errorResult(fmt.Sprintf("send request: %v", err)), nil, nil
 	}

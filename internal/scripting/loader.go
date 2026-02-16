@@ -194,12 +194,13 @@ func CreateNewScript(dir string) (string, error) {
 	}
 	defer f.Close()
 
+	path := f.Name()
 	if _, err := f.WriteString(NewScriptTemplate()); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(path) //#nosec G703 -- path from os.CreateTemp
 		return "", fmt.Errorf("write template: %w", err)
 	}
 
-	return f.Name(), nil
+	return path, nil
 }
 
 // CreateMapLocalScript creates a map-local script in dir with the given
@@ -230,12 +231,13 @@ function onRequest(ctx) {
 }
 `, generateID(), slug, pattern, localPath)
 
+	path := f.Name()
 	if _, err := f.WriteString(content); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(path) //#nosec G703 -- path from os.CreateTemp
 		return "", fmt.Errorf("write template: %w", err)
 	}
 
-	return f.Name(), nil
+	return path, nil
 }
 
 // patternSlug creates a short slug from a URL pattern for naming.
