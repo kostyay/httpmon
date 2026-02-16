@@ -73,7 +73,7 @@ func openInEditor(body []byte, contentType string) tea.Cmd {
 	}
 
 	editor := resolveEditor()
-	c := exec.Command(editor, f.Name()) // #nosec G204 -- editor from $VISUAL/$EDITOR env
+	c := exec.Command(editor, f.Name()) // #nosec G204 G702 -- editor from $VISUAL/$EDITOR env
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})
