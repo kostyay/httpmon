@@ -153,8 +153,10 @@ func main() {
 		Scripts:     mgr,
 		Throttle:    p,
 		Breakpoints: bpCtrl,
-		MCP:         mcpSrv,
 		DataDir:     *dataDir,
+	}
+	if mcpSrv != nil {
+		tuiCfg.MCP = mcpSrv
 	}
 	app := tui.NewApp(tuiCfg)
 	prog := tea.NewProgram(app)
