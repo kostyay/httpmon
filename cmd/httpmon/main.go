@@ -141,7 +141,9 @@ func main() {
 		Scripts:     mgr,
 		Throttle:    p,
 		Breakpoints: bpCtrl,
-		MCP:         mcpSrv,
+	}
+	if mcpSrv != nil {
+		cfg.MCP = mcpSrv
 	}
 	app := tui.NewApp(cfg)
 	prog := tea.NewProgram(app)
