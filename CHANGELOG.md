@@ -8,8 +8,10 @@ default backfill for forward-compatible configs, CLI flag overrides via
 `flag.Visit`, and transparent MCP token migration from the legacy `mcp-token`
 file. A TUI settings screen (P key) exposes all seven fields — ProxyPort,
 MCPEnabled, MCPAddr, BufferSize, ThrottlePreset, ListMode, TreeGroupBy — with
-bool/enum toggle and text editing, auto-saving on close. Go upgraded from 1.25.3
-to 1.26.0 alongside golangci-lint v2.9.0, resolving the race detector toolchain
+bool/enum toggle and text editing, auto-saving on close. Ten unit tests cover
+open/close, navigation, field toggling, text editing with cancel, disk
+persistence, view rendering, and menu integration. Go upgraded from 1.25.3 to
+1.26.0 alongside golangci-lint v2.9.0, resolving the race detector toolchain
 mismatch.
 
 ## [feat/mcp-server](https://github.com/kostyay/httpmon/pull/20) - 2026-02-16
