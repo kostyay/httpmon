@@ -103,26 +103,26 @@ type App struct {
 	throttleCursor int
 
 	// breakpoint editor
-	breakpoints          breakpoint.Controller
-	showBreakpointQueue  bool
-	breakpointCursor     int
-	breakpointPending    []breakpoint.BreakpointHit
-	editingBreakpoint    *breakpoint.BreakpointHit
-	bpHeadersTA          textarea.Model
-	bpBodyTA             textarea.Model
-	bpFocusedPane        int
-	breakpointHitCount   int
-	breakpointSub        <-chan breakpoint.BreakpointHit
+	breakpoints         breakpoint.Controller
+	showBreakpointQueue bool
+	breakpointCursor    int
+	breakpointPending   []breakpoint.BreakpointHit
+	editingBreakpoint   *breakpoint.BreakpointHit
+	bpHeadersTA         textarea.Model
+	bpBodyTA            textarea.Model
+	bpFocusedPane       int
+	breakpointHitCount  int
+	breakpointSub       <-chan breakpoint.BreakpointHit
 
 	// detail search
-	detailSearch    bool
-	searchInput     textinput.Model
-	searchQuery     string
+	detailSearch     bool
+	searchInput      textinput.Model
+	searchQuery      string
 	searchMatchCount int
 	searchMatchIdx   int
 
 	// detail view state
-	detailTab          int             // 0=request, 1=response
+	detailTab          int // 0=request, 1=response
 	detailVP           viewport.Model
 	detailReady        bool
 	detailRaw          bool            // false=pretty-print, true=raw
@@ -161,7 +161,7 @@ func NewApp(cfg AppConfig) *App {
 		throttle:        cfg.Throttle,
 		filterInput:     ti,
 		searchInput:     si,
-		groupExpanded:    make(map[string]bool),
+		groupExpanded:   make(map[string]bool),
 		detailCollapsed: make(map[string]bool),
 		breakpoints:     cfg.Breakpoints,
 	}

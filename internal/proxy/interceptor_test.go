@@ -237,6 +237,60 @@ func TestStreamResponseModifierLatencyOnly(t *testing.T) {
 	}
 }
 
+func TestResponseheadersUpdatesStore(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s})
+
+	conn := &fakeConn{addr: fakeAddr{"127.0.0.1:22222"}}
+	flow := newTestFlow(conn, false)
+	ic.Requestheaders(flow)
+
+	flow.Response = &mp.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+	}
+	ic.Responseheaders(flow)
+
+	flowID := flow.Id.String()
+	metas, _ := s.List(nil, 0, 0)
+	for _, m := range metas {
+		if m.ID == flowID {
+			if m.StatusCode != 200 {
+				t.Errorf("StatusCode = %d, want 200", m.StatusCode)
+			}
+			if m.ContentType != "application/json" {
+				t.Errorf("ContentType = %q, want application/json", m.ContentType)
+			}
+			return
+		}
+	}
+	t.Error("flow not found in store")
+}
+
+func TestResponseheadersNilResponse(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s})
+
+	conn := &fakeConn{addr: fakeAddr{"127.0.0.1:33333"}}
+	flow := newTestFlow(conn, false)
+	ic.Requestheaders(flow)
+
+	flow.Response = nil
+	ic.Responseheaders(flow) // must not panic
+
+	flowID := flow.Id.String()
+	metas, _ := s.List(nil, 0, 0)
+	for _, m := range metas {
+		if m.ID == flowID {
+			if m.StatusCode != 0 {
+				t.Errorf("StatusCode = %d, want 0 (unchanged)", m.StatusCode)
+			}
+			return
+		}
+	}
+	t.Error("flow not found in store")
+}
+
 func TestSetThrottleRuntimeChange(t *testing.T) {
 	s := store.New(100)
 	ic := newInterceptor(interceptorConfig{Store: s})

@@ -21,16 +21,16 @@ func (m *mockThrottleController) SetThrottle(bps int64, latency time.Duration) {
 	m.latency = latency
 }
 
-func (m *mockThrottleController) GetThrottleBPS() int64       { return m.bps }
+func (m *mockThrottleController) GetThrottleBPS() int64             { return m.bps }
 func (m *mockThrottleController) GetThrottleLatency() time.Duration { return m.latency }
 
 func newAppWithThrottle(tc ThrottleController) *App {
 	m := seedMock(3)
 	app := NewApp(AppConfig{
-		Store:    m,
-		Proxy:    &mockProxyInfo{addr: ":9999"},
+		Store:     m,
+		Proxy:     &mockProxyInfo{addr: ":9999"},
 		CATrusted: true,
-		Throttle: tc,
+		Throttle:  tc,
 	})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app.Update(TickMsg(time.Now()))

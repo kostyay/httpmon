@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -74,6 +75,47 @@ func TestDetailHidesProcessWhenNoPID(t *testing.T) {
 	view := stripView(app)
 	if strings.Contains(view, "PID:") {
 		t.Error("detail view should NOT show Process section when PID is 0")
+	}
+}
+
+func TestRenderDetailBodyNilMeta(t *testing.T) {
+	out := renderDetailBody(nil, nil, 0, 80, true, true, nil)
+	if !strings.Contains(out, "no longer available") {
+		t.Errorf("expected 'no longer available', got: %s", out)
+	}
+}
+
+func TestRenderResponseDetailInProgress(t *testing.T) {
+	meta := &store.FlowMeta{
+		ID: "ip1", Method: "GET", Host: "example.com",
+		Path: "/", State: store.StateInProgress,
+	}
+	out := renderDetailBody(meta, nil, 1, 80, true, true, nil)
+	stripped := ansi.Strip(out)
+	if !strings.Contains(stripped, "Awaiting response") {
+		t.Errorf("expected 'Awaiting response', got: %s", stripped)
+	}
+}
+
+func TestRenderResponseDetailCompleted(t *testing.T) {
+	meta := &store.FlowMeta{
+		ID: "rc1", Method: "GET", Host: "example.com",
+		Path: "/data", StatusCode: 200, ContentType: "application/json",
+		State: store.StateCompleted, Duration: 50 * time.Millisecond,
+		SizeBytes: 42,
+	}
+	data := &store.FlowData{
+		ResponseHeaders: map[string][]string{
+			"X-Custom": {"hello"},
+		},
+		ResponseBody: []byte(`{"ok":true}`),
+	}
+	out := renderDetailBody(meta, data, 1, 80, true, true, nil)
+	stripped := ansi.Strip(out)
+	for _, want := range []string{"200", "application/json", "X-Custom", "hello", "ok"} {
+		if !strings.Contains(stripped, want) {
+			t.Errorf("expected %q in output, got: %s", want, stripped)
+		}
 	}
 }
 

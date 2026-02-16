@@ -22,8 +22,8 @@ import (
 type interceptor struct {
 	mp.BaseAddon
 	store    *store.RingBuffer
-	engine   *scripting.Engine    // may be nil
-	resolver *procinfo.Resolver   // may be nil
+	engine   *scripting.Engine  // may be nil
+	resolver *procinfo.Resolver // may be nil
 
 	mu              sync.RWMutex
 	throttleBPS     int64
