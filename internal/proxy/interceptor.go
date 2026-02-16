@@ -3,13 +3,16 @@ package proxy
 import (
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 
+	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/throttle"
@@ -18,8 +21,9 @@ import (
 // interceptor is a go-mitmproxy addon that captures flows into a RingBuffer.
 type interceptor struct {
 	mp.BaseAddon
-	store  *store.RingBuffer
-	engine *scripting.Engine // may be nil
+	store    *store.RingBuffer
+	engine   *scripting.Engine    // may be nil
+	resolver *procinfo.Resolver   // may be nil
 
 	mu              sync.RWMutex
 	throttleBPS     int64
@@ -29,6 +33,7 @@ type interceptor struct {
 type interceptorConfig struct {
 	Store           *store.RingBuffer
 	Engine          *scripting.Engine
+	Resolver        *procinfo.Resolver
 	ThrottleBPS     int64
 	ThrottleLatency time.Duration
 }
@@ -37,6 +42,7 @@ func newInterceptor(cfg interceptorConfig) *interceptor {
 	return &interceptor{
 		store:           cfg.Store,
 		engine:          cfg.Engine,
+		resolver:        cfg.Resolver,
 		throttleBPS:     cfg.ThrottleBPS,
 		throttleLatency: cfg.ThrottleLatency,
 	}
@@ -76,8 +82,9 @@ func (i *interceptor) Requestheaders(f *mp.Flow) {
 		scheme = "https"
 	}
 
+	flowID := f.Id.String()
 	meta := store.FlowMeta{
-		ID:        f.Id.String(),
+		ID:        flowID,
 		Method:    f.Request.Method,
 		Host:      f.Request.URL.Hostname(),
 		Path:      f.Request.URL.RequestURI(),
@@ -86,6 +93,12 @@ func (i *interceptor) Requestheaders(f *mp.Flow) {
 		State:     store.StateInProgress,
 	}
 	i.store.Add(meta)
+
+	if i.resolver != nil && f.ConnContext != nil {
+		if port := clientPort(f.ConnContext.ClientConn.Conn); port > 0 {
+			i.resolver.Resolve(flowID, port)
+		}
+	}
 }
 
 func (i *interceptor) Request(f *mp.Flow) {
@@ -225,17 +238,13 @@ func (i *interceptor) Response(f *mp.Flow) {
 		}
 	}
 
-	// Merge response data with existing request data.
-	_, existingData, _ := i.store.Get(id)
-	data := &store.FlowData{
-		ResponseHeaders: f.Response.Header.Clone(),
-		ResponseBody:    respBody,
-	}
-	if existingData != nil {
-		data.RequestHeaders = existingData.RequestHeaders
-		data.RequestBody = existingData.RequestBody
-	}
-	i.store.SetData(id, data)
+	// Merge response fields into existing FlowData (preserves
+	// request headers/body and process info set earlier).
+	respHeaders := f.Response.Header.Clone()
+	i.store.UpdateData(id, func(d *store.FlowData) {
+		d.ResponseHeaders = respHeaders
+		d.ResponseBody = respBody
+	})
 
 	i.store.Update(id, func(m *store.FlowMeta) {
 		m.StatusCode = f.Response.StatusCode
@@ -280,4 +289,20 @@ func (i *interceptor) markFailed(f *mp.Flow) {
 		m.State = store.StateFailed
 		m.Duration = time.Since(m.StartedAt)
 	})
+}
+
+// clientPort extracts the ephemeral port from a net.Conn's RemoteAddr.
+func clientPort(c net.Conn) uint16 {
+	if c == nil {
+		return 0
+	}
+	_, portStr, err := net.SplitHostPort(c.RemoteAddr().String())
+	if err != nil {
+		return 0
+	}
+	p, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return 0
+	}
+	return uint16(p)
 }

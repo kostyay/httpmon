@@ -31,6 +31,7 @@ type FlowMeta struct {
 	State       FlowState
 	ContentType string
 	Scheme      string
+	Process     string
 }
 
 // FlowData holds the full request/response headers and bodies.
@@ -39,6 +40,8 @@ type FlowData struct {
 	RequestBody     []byte
 	ResponseHeaders http.Header
 	ResponseBody    []byte
+	ProcessPID      int32
+	ProcessCmdline  string
 }
 
 // Filter determines whether a FlowMeta should be included in results.

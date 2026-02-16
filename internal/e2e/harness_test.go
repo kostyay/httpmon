@@ -19,6 +19,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/proxy"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/tui"
@@ -46,6 +47,7 @@ func newHarness(t *testing.T, handler http.Handler) *harness {
 
 	p := proxy.New(s, t.TempDir())
 	p.SslInsecure = true
+	p.Resolver = procinfo.New(s)
 	if err := p.Init(addr); err != nil {
 		upstream.Close()
 		t.Fatalf("proxy init: %v", err)
@@ -158,6 +160,23 @@ func (h *harness) waitForText(t *testing.T, text string) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %q in view:\n%s", text, h.view())
+}
+
+// tryWaitForProcess ticks until a flow's Process field is
+// populated. Returns true if resolved within timeout.
+func (h *harness) tryWaitForProcess(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		h.tick()
+		flows, _ := h.store.List(nil, 0, 0)
+		for _, f := range flows {
+			if f.Process != "" && f.Process != "\u2014" {
+				return true
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
 }
 
 // waitForCondition ticks until fn returns true.

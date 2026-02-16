@@ -14,6 +14,7 @@ import (
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
+	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -51,6 +52,9 @@ type Proxy struct {
 
 	// BreakpointCtrl is optional; enables script breakpoints.
 	BreakpointCtrl breakpoint.Controller
+
+	// Resolver is optional; resolves process info for connections.
+	Resolver *procinfo.Resolver
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -101,6 +105,7 @@ func (p *Proxy) Init(addr string) error {
 	p.intc = newInterceptor(interceptorConfig{
 		Store:           p.store,
 		Engine:          p.ScriptEngine,
+		Resolver:        p.Resolver,
 		ThrottleBPS:     p.ThrottleBPS,
 		ThrottleLatency: p.ThrottleLatency,
 	})
