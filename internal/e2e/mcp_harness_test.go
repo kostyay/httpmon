@@ -24,29 +24,42 @@ import (
 
 // mcpHarness extends the base harness with MCP server + client.
 type mcpHarness struct {
-	upstream  *httptest.Server
-	proxy     *proxy.Proxy
-	store     *store.RingBuffer
-	client    *http.Client
-	mcpSrv    *mcpserver.Server
-	session   *mcp.ClientSession
-	cancel    context.CancelFunc
-	proxyAddr string
+	upstream   *httptest.Server
+	proxy      *proxy.Proxy
+	store      *store.RingBuffer
+	client     *http.Client
+	mcpSrv     *mcpserver.Server
+	session    *mcp.ClientSession
+	cancel     context.CancelFunc
+	proxyAddr  string
 	scriptsDir string
+	token      string
 }
+
+const testToken = "test-bearer-token-abc123"
 
 func newMCPHarness(t *testing.T, handler http.Handler) *mcpHarness {
 	t.Helper()
+	return newMCPHarnessWithToken(t, handler, testToken)
+}
+
+// newMCPHarnessNoAuth creates an MCP harness without bearer auth.
+func newMCPHarnessNoAuth(t *testing.T, handler http.Handler) *mcpHarness {
+	t.Helper()
+	return newMCPHarnessWithToken(t, handler, "")
+}
+
+// newMCPHarnessWithToken creates an MCP harness with the specified token (empty = no auth).
+func newMCPHarnessWithToken(t *testing.T, handler http.Handler, token string) *mcpHarness {
+	t.Helper()
 
 	upstream := httptest.NewServer(handler)
-
 	s := store.New(100)
 	port := freePort(t)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	p := proxy.New(s, t.TempDir())
 	p.SslInsecure = true
-
 	scriptsDir := filepath.Join(t.TempDir(), "scripts")
 	engine := scripting.New()
 	engine.LoadFromDir(scriptsDir)
@@ -60,17 +73,16 @@ func newMCPHarness(t *testing.T, handler http.Handler) *mcpHarness {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = p.Serve(ctx) }()
-
 	waitForListener(t, addr)
 
-	// Start MCP server on a free port.
 	mcpPort := freePort(t)
 	mcpSrv := mcpserver.New(mcpserver.Config{
 		Store:    s,
 		Proxy:    p,
 		Scripts:  mgr,
 		Throttle: p,
-		Port:     mcpPort,
+		Addr:     fmt.Sprintf("127.0.0.1:%d", mcpPort),
+		Token:    token,
 	})
 	if err := mcpSrv.Start(ctx); err != nil {
 		cancel()
@@ -79,17 +91,16 @@ func newMCPHarness(t *testing.T, handler http.Handler) *mcpHarness {
 		t.Fatalf("mcp server start: %v", err)
 	}
 
-	// Wait for MCP server to be listening.
 	mcpAddr := fmt.Sprintf("127.0.0.1:%d", mcpSrv.Port())
 	waitForListener(t, mcpAddr)
 
-	// Connect MCP client.
 	mcpClient := mcp.NewClient(
 		&mcp.Implementation{Name: "test-client", Version: "1.0.0"},
 		nil,
 	)
 	transport := &mcp.StreamableClientTransport{
-		Endpoint: fmt.Sprintf("http://%s", mcpAddr),
+		Endpoint:   fmt.Sprintf("http://%s", mcpAddr),
+		HTTPClient: authHTTPClient(token),
 	}
 
 	session, err := mcpClient.Connect(ctx, transport, nil)
@@ -105,7 +116,7 @@ func newMCPHarness(t *testing.T, handler http.Handler) *mcpHarness {
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			Proxy:           http.ProxyURL(proxyURL),
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test proxy CA
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -120,6 +131,7 @@ func newMCPHarness(t *testing.T, handler http.Handler) *mcpHarness {
 		cancel:     cancel,
 		proxyAddr:  addr,
 		scriptsDir: scriptsDir,
+		token:      token,
 	}
 
 	t.Cleanup(func() {
@@ -196,3 +208,26 @@ func (h *mcpHarness) waitForFlows(t *testing.T, n int) {
 	t.Fatalf("timed out waiting for %d flows (have %d)", n, h.store.Len())
 }
 
+// authRoundTripper injects an Authorization header into every request.
+type authRoundTripper struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (rt *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.token != "" {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", "Bearer "+rt.token)
+	}
+	return rt.base.RoundTrip(req)
+}
+
+// authHTTPClient returns an *http.Client that adds a bearer token to all requests.
+func authHTTPClient(token string) *http.Client {
+	if token == "" {
+		return http.DefaultClient
+	}
+	return &http.Client{
+		Transport: &authRoundTripper{token: token, base: http.DefaultTransport},
+	}
+}

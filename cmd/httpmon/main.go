@@ -36,8 +36,8 @@ func main() {
 	installCA := flag.Bool("install-ca", false, "install CA cert into system trust store and exit")
 	throttleFlag := flag.String("throttle", "", "throttle preset: 3g, 4g, wifi")
 	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
-	mcpFlag := flag.Bool("mcp", false, "start MCP server on default port (9551)")
-	mcpPortFlag := flag.Int("mcp-port", 0, "MCP server port (implies --mcp)")
+	mcpFlag := flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
+	mcpAddrFlag := flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
 	flag.Parse()
 
 	if *showVersion {
@@ -107,26 +107,31 @@ func main() {
 	mgr := scripting.NewManager(engine, scriptsDir)
 
 	// MCP server (optional).
-	if *mcpPortFlag > 0 {
+	if *mcpAddrFlag != "" {
 		*mcpFlag = true
 	}
 	var mcpSrv *mcpserver.Server
 	if *mcpFlag {
-		mcpPort := *mcpPortFlag
-		if mcpPort == 0 {
-			mcpPort = mcpserver.DefaultPort
+		mcpAddr := *mcpAddrFlag
+		if mcpAddr == "" {
+			mcpAddr = mcpserver.DefaultAddr
+		}
+		token, tokenErr := mcpserver.LoadOrCreateToken(*dataDir)
+		if tokenErr != nil {
+			fatal("mcp token: %v", tokenErr)
 		}
 		mcpSrv = mcpserver.New(mcpserver.Config{
 			Store:    s,
 			Proxy:    p,
 			Scripts:  mgr,
 			Throttle: p,
-			Port:     mcpPort,
+			Addr:     mcpAddr,
+			Token:    token,
 		})
 		if err := mcpSrv.Start(ctx); err != nil {
 			fatal("mcp server: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "MCP server listening on :%d\n", mcpSrv.Port())
+		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), token)
 	}
 
 	cfg := tui.AppConfig{

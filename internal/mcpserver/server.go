@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type ProxyInfo interface {
 // ScriptManager exposes script operations.
 type ScriptManager interface {
 	Scripts() []scripting.ScriptInfo
+	ScriptByID(id string) (scripting.ScriptInfo, bool)
 	Toggle(filePath string) error
 	Delete(filePath string) error
 	CreateNew() (string, error)
@@ -48,7 +50,8 @@ type Config struct {
 	Proxy    ProxyInfo
 	Scripts  ScriptManager
 	Throttle ThrottleController
-	Port     int // default 9551
+	Addr     string // listen address (default "127.0.0.1:9551")
+	Token    string // bearer token for auth
 }
 
 // Server is the MCP server that exposes httpmon tools to LLM agents.
@@ -58,22 +61,22 @@ type Server struct {
 	srv     *http.Server
 	handler *mcp.StreamableHTTPHandler
 	running bool
-	port    int
+	addr    string
 }
 
-// DefaultPort is the default MCP server port.
-const DefaultPort = 9551
+// DefaultAddr is the default MCP server listen address.
+const DefaultAddr = "127.0.0.1:9551"
 
 // New creates an MCP server with the given config.
 func New(cfg Config) *Server {
-	port := cfg.Port
-	if port == 0 {
-		port = DefaultPort
+	addr := cfg.Addr
+	if addr == "" {
+		addr = DefaultAddr
 	}
-	return &Server{cfg: cfg, port: port}
+	return &Server{cfg: cfg, addr: addr}
 }
 
-// Start begins serving on the configured port.
+// Start begins serving on the configured address.
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -94,16 +97,18 @@ func (s *Server) Start(ctx context.Context) error {
 		nil,
 	)
 
-	addr := fmt.Sprintf(":%d", s.port)
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		return fmt.Errorf("listen %s: %w", addr, err)
+		return fmt.Errorf("listen %s: %w", s.addr, err)
 	}
 
-	// Store actual port (useful if port was 0 for tests).
-	s.port = ln.Addr().(*net.TCPAddr).Port
+	// Store actual addr (useful if port was 0 for tests).
+	s.addr = ln.Addr().String()
 
-	s.srv = &http.Server{Handler: s.handler}
+	var handler http.Handler = s.handler
+	handler = bearerAuthMiddleware(s.cfg.Token, handler)
+
+	s.srv = &http.Server{Handler: handler}
 	s.running = true
 
 	go func() {
@@ -146,7 +151,22 @@ func (s *Server) Running() bool {
 func (s *Server) Port() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.port
+	_, portStr, err := net.SplitHostPort(s.addr)
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0
+	}
+	return port
+}
+
+// Addr returns the full listen address.
+func (s *Server) Addr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.addr
 }
 
 // registerTools adds all MCP tools to the server.

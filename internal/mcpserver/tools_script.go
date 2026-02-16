@@ -24,7 +24,7 @@ func (s *Server) registerScriptTools(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_script",
-		Description: "Get the source code and metadata of a script by file path.",
+		Description: "Get the source code and metadata of a script by ID.",
 	}, s.handleGetScript)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -44,7 +44,7 @@ type listScriptsInput struct{}
 
 type scriptSummary struct {
 	Name       string   `json:"name"`
-	FilePath   string   `json:"file_path"`
+	ScriptID   string   `json:"script_id"`
 	Matches    []string `json:"match_patterns"`
 	Enabled    bool     `json:"enabled"`
 	Category   string   `json:"category"`
@@ -115,24 +115,29 @@ func (s *Server) handleCreateScript(
 	s.cfg.Scripts.Reload()
 
 	return jsonResult(map[string]any{
-		"file_path": path,
+		"script_id": s.scriptIDByPath(path),
 	}), nil, nil
 }
 
 // --- get_script ---
 
 type getScriptInput struct {
-	FilePath string `json:"file_path" jsonschema:"path to script file (required)"`
+	ScriptID string `json:"script_id" jsonschema:"script ID (required)"`
 }
 
 func (s *Server) handleGetScript(
 	_ context.Context, _ *mcp.CallToolRequest, in getScriptInput,
 ) (*mcp.CallToolResult, any, error) {
-	if in.FilePath == "" {
-		return errorResult("file_path is required"), nil, nil
+	if in.ScriptID == "" {
+		return errorResult("script_id is required"), nil, nil
 	}
 
-	data, err := os.ReadFile(in.FilePath) // #nosec G304 -- user-provided script path
+	info, ok := s.cfg.Scripts.ScriptByID(in.ScriptID)
+	if !ok {
+		return errorResult("script not found"), nil, nil
+	}
+
+	data, err := os.ReadFile(info.FilePath) // #nosec G304 -- path from trusted ScriptByID
 	if err != nil {
 		return errorResult(fmt.Sprintf("read: %v", err)), nil, nil
 	}
@@ -161,7 +166,7 @@ func (s *Server) handleGetScript(
 // --- toggle_script ---
 
 type toggleScriptInput struct {
-	FilePath string `json:"file_path" jsonschema:"path to script file (required)"`
+	ScriptID string `json:"script_id" jsonschema:"script ID (required)"`
 }
 
 func (s *Server) handleToggleScript(
@@ -170,16 +175,21 @@ func (s *Server) handleToggleScript(
 	if s.cfg.Scripts == nil {
 		return errorResult("scripts not available"), nil, nil
 	}
-	if in.FilePath == "" {
-		return errorResult("file_path is required"), nil, nil
+	if in.ScriptID == "" {
+		return errorResult("script_id is required"), nil, nil
 	}
 
-	if err := s.cfg.Scripts.Toggle(in.FilePath); err != nil {
+	info, ok := s.cfg.Scripts.ScriptByID(in.ScriptID)
+	if !ok {
+		return errorResult("script not found"), nil, nil
+	}
+
+	if err := s.cfg.Scripts.Toggle(info.FilePath); err != nil {
 		return errorResult(fmt.Sprintf("toggle: %v", err)), nil, nil
 	}
 
 	// Read back current state.
-	data, err := os.ReadFile(in.FilePath) // #nosec G304
+	data, err := os.ReadFile(info.FilePath) // #nosec G304
 	if err != nil {
 		return jsonResult(map[string]any{"toggled": true}), nil, nil
 	}
@@ -195,7 +205,7 @@ func (s *Server) handleToggleScript(
 // --- delete_script ---
 
 type deleteScriptInput struct {
-	FilePath string `json:"file_path" jsonschema:"path to script file (required)"`
+	ScriptID string `json:"script_id" jsonschema:"script ID (required)"`
 }
 
 func (s *Server) handleDeleteScript(
@@ -204,11 +214,16 @@ func (s *Server) handleDeleteScript(
 	if s.cfg.Scripts == nil {
 		return errorResult("scripts not available"), nil, nil
 	}
-	if in.FilePath == "" {
-		return errorResult("file_path is required"), nil, nil
+	if in.ScriptID == "" {
+		return errorResult("script_id is required"), nil, nil
 	}
 
-	if err := s.cfg.Scripts.Delete(in.FilePath); err != nil {
+	info, ok := s.cfg.Scripts.ScriptByID(in.ScriptID)
+	if !ok {
+		return errorResult("script not found"), nil, nil
+	}
+
+	if err := s.cfg.Scripts.Delete(info.FilePath); err != nil {
 		return errorResult(fmt.Sprintf("delete: %v", err)), nil, nil
 	}
 
@@ -228,12 +243,22 @@ func infoToSummary(info scripting.ScriptInfo) scriptSummary {
 	}
 	return scriptSummary{
 		Name:       info.Name,
-		FilePath:   info.FilePath,
+		ScriptID:   info.ID,
 		Matches:    info.Matches,
 		Enabled:    info.Enabled,
 		Category:   primary,
 		Categories: cats,
 	}
+}
+
+// scriptIDByPath finds the script_id for the script at path after a reload.
+func (s *Server) scriptIDByPath(path string) string {
+	for _, info := range s.cfg.Scripts.Scripts() {
+		if info.FilePath == path {
+			return info.ID
+		}
+	}
+	return ""
 }
 
 // writeScriptFile creates a temp file in dir with the given prefix and content.

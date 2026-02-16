@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -82,7 +81,7 @@ func (s *Server) handleListRequests(
 type getRequestInput struct {
 	ID          string `json:"id" jsonschema:"flow ID (required)"`
 	MaxBodySize int    `json:"max_body_size,omitempty" jsonschema:"max body bytes inline (default 50000)"`
-	DumpPath    string `json:"dump_path,omitempty" jsonschema:"directory to write full bodies to files"`
+	Dump        bool   `json:"dump,omitempty" jsonschema:"write bodies to temp files instead of inlining"`
 }
 
 func (s *Server) handleGetRequest(
@@ -112,15 +111,22 @@ func (s *Server) handleGetRequest(
 		result["request_headers"] = reqHeaders
 		result["response_headers"] = respHeaders
 
-		if in.DumpPath != "" {
-			// Write bodies to files.
-			reqPath := filepath.Join(in.DumpPath, in.ID+"-req.bin")
-			respPath := filepath.Join(in.DumpPath, in.ID+"-resp.bin")
-			_ = os.MkdirAll(in.DumpPath, 0o750)
-			_ = os.WriteFile(reqPath, data.RequestBody, 0o600)
-			_ = os.WriteFile(respPath, data.ResponseBody, 0o600)
-			result["request_body_path"] = reqPath
-			result["response_body_path"] = respPath
+		if in.Dump {
+			// Write bodies to temp files (safe: os.CreateTemp always uses os.TempDir).
+			if len(data.RequestBody) > 0 {
+				if f, err := os.CreateTemp("", in.ID+"-req-*.bin"); err == nil {
+					_, _ = f.Write(data.RequestBody)
+					f.Close()
+					result["request_body_path"] = f.Name()
+				}
+			}
+			if len(data.ResponseBody) > 0 {
+				if f, err := os.CreateTemp("", in.ID+"-resp-*.bin"); err == nil {
+					_, _ = f.Write(data.ResponseBody)
+					f.Close()
+					result["response_body_path"] = f.Name()
+				}
+			}
 		} else {
 			result["request_body"] = encodeBody(data.RequestBody, maxBody)
 			result["response_body"] = encodeBody(data.ResponseBody, maxBody)

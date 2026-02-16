@@ -1,11 +1,46 @@
 package scripting
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// generateID creates a random 16-hex-char identifier.
+func generateID() string {
+	var buf [8]byte
+	_, _ = rand.Read(buf[:])
+	return hex.EncodeToString(buf[:])
+}
+
+// ensureScriptID backfills a missing id into the YAML header on disk.
+// It inserts an "// id: <hex>" line after the opening "// ---" delimiter.
+func ensureScriptID(path string, meta *ScriptMeta, source string) (string, error) {
+	if meta.ID != "" {
+		return meta.ID, nil
+	}
+	id := generateID()
+	lines := strings.Split(source, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == headerDelimiter {
+			// Insert id line after opening delimiter.
+			idLine := fmt.Sprintf("// id: %s", id)
+			newLines := make([]string, 0, len(lines)+1)
+			newLines = append(newLines, lines[:i+1]...)
+			newLines = append(newLines, idLine)
+			newLines = append(newLines, lines[i+1:]...)
+			if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0o600); err != nil {
+				return "", fmt.Errorf("backfill id in %s: %w", path, err)
+			}
+			meta.ID = id
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("no opening delimiter in %s", path)
+}
 
 // ScriptFile represents a loaded script file with metadata.
 type ScriptFile struct {
@@ -47,6 +82,16 @@ func LoadDir(dir string) (scripts []ScriptFile, errs []ScriptFile) {
 				Meta:     &ScriptMeta{Name: filenameToName(e.Name())},
 				FilePath: path,
 				Error:    parseErr.Error(),
+			})
+			continue
+		}
+
+		// Backfill missing ID on disk.
+		if _, idErr := ensureScriptID(path, meta, source); idErr != nil {
+			errs = append(errs, ScriptFile{
+				Meta:     meta,
+				FilePath: path,
+				Error:    idErr.Error(),
 			})
 			continue
 		}
@@ -114,7 +159,10 @@ func ToggleEnabled(path string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
-const scriptTemplate = `// ---
+// NewScriptTemplate returns the default script template with a fresh ID.
+func NewScriptTemplate() string {
+	return fmt.Sprintf(`// ---
+// id: %s
 // name: New Script
 // match:
 //   - "*"
@@ -130,11 +178,7 @@ function onResponse(ctx) {
   // Modify response before it reaches the browser.
   // ctx.status, ctx.headers, ctx.body
 }
-`
-
-// NewScriptTemplate returns the default script template string.
-func NewScriptTemplate() string {
-	return scriptTemplate
+`, generateID())
 }
 
 // CreateNewScript creates dir if needed and writes the default template
@@ -174,6 +218,7 @@ func CreateMapLocalScript(dir, pattern, localPath string) (string, error) {
 	defer f.Close()
 
 	content := fmt.Sprintf(`// ---
+// id: %s
 // name: mock-%s
 // match:
 //   - "%s"
@@ -183,7 +228,7 @@ func CreateMapLocalScript(dir, pattern, localPath string) (string, error) {
 function onRequest(ctx) {
   ctx.respondWith({file: "%s"});
 }
-`, slug, pattern, localPath)
+`, generateID(), slug, pattern, localPath)
 
 	if _, err := f.WriteString(content); err != nil {
 		_ = os.Remove(f.Name())

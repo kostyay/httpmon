@@ -4,6 +4,9 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -281,8 +284,8 @@ func TestMCP_MockResponse(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("mock error: %s", text)
 	}
-	if !strings.Contains(text, "script_path") {
-		t.Errorf("expected script_path in response, got: %s", text)
+	if !strings.Contains(text, "script_id") {
+		t.Errorf("expected script_id in response, got: %s", text)
 	}
 
 	// Send a request that matches the mock pattern.
@@ -313,8 +316,8 @@ func TestMCP_CreateAndListScript(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("create error: %s", text)
 	}
-	if !strings.Contains(text, "file_path") {
-		t.Errorf("expected file_path in response, got: %s", text)
+	if !strings.Contains(text, "script_id") {
+		t.Errorf("expected script_id in response, got: %s", text)
 	}
 
 	// List scripts.
@@ -322,6 +325,9 @@ func TestMCP_CreateAndListScript(t *testing.T) {
 	text = resultText(result)
 	if !strings.Contains(text, "test-script") {
 		t.Errorf("list should contain test-script, got: %s", text)
+	}
+	if !strings.Contains(text, "script_id") {
+		t.Errorf("list should contain script_id, got: %s", text)
 	}
 }
 
@@ -337,13 +343,13 @@ func TestMCP_ToggleScript(t *testing.T) {
 		"enabled":        true,
 	})
 	var createResp struct {
-		FilePath string `json:"file_path"`
+		ScriptID string `json:"script_id"`
 	}
 	json.Unmarshal([]byte(resultText(result)), &createResp)
 
 	// Toggle off.
 	result = h.callTool(t, "toggle_script", map[string]any{
-		"file_path": createResp.FilePath,
+		"script_id": createResp.ScriptID,
 	})
 	text := resultText(result)
 	var toggleResp struct {
@@ -368,13 +374,13 @@ func TestMCP_DeleteScript(t *testing.T) {
 		"enabled":        true,
 	})
 	var createResp struct {
-		FilePath string `json:"file_path"`
+		ScriptID string `json:"script_id"`
 	}
 	json.Unmarshal([]byte(resultText(result)), &createResp)
 
 	// Delete.
 	result = h.callTool(t, "delete_script", map[string]any{
-		"file_path": createResp.FilePath,
+		"script_id": createResp.ScriptID,
 	})
 	text := resultText(result)
 	if !strings.Contains(text, `"deleted":true`) {
@@ -401,13 +407,13 @@ func TestMCP_GetScript(t *testing.T) {
 		"enabled":        true,
 	})
 	var createResp struct {
-		FilePath string `json:"file_path"`
+		ScriptID string `json:"script_id"`
 	}
 	json.Unmarshal([]byte(resultText(result)), &createResp)
 
 	// Get script.
 	result = h.callTool(t, "get_script", map[string]any{
-		"file_path": createResp.FilePath,
+		"script_id": createResp.ScriptID,
 	})
 	text := resultText(result)
 	if !strings.Contains(text, "source-test") {
@@ -415,6 +421,22 @@ func TestMCP_GetScript(t *testing.T) {
 	}
 	if !strings.Contains(text, "custom code") {
 		t.Error("should contain script source")
+	}
+}
+
+func TestMCP_GetScript_NotFound(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	result := h.callTool(t, "get_script", map[string]any{
+		"script_id": "bogus-nonexistent-id",
+	})
+	if !result.IsError {
+		t.Error("expected error for bogus script_id")
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected 'not found' in error, got: %s", text)
 	}
 }
 
@@ -437,6 +459,71 @@ func TestMCP_MockViaScript(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "mock") {
 		t.Errorf("mock script should appear with 'mock' in list, got: %s", text)
+	}
+}
+
+// --- Auth tests ---
+
+func TestMCP_Auth_Rejected(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	// Raw HTTP request without bearer token should get 401.
+	mcpAddr := fmt.Sprintf("http://127.0.0.1:%d/mcp", h.mcpSrv.Port())
+	req, _ := http.NewRequest("POST", mcpAddr, strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 401 {
+		t.Errorf("expected 401 without token, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCP_Auth_WrongToken(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	mcpAddr := fmt.Sprintf("http://127.0.0.1:%d/mcp", h.mcpSrv.Port())
+	req, _ := http.NewRequest("POST", mcpAddr, strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer wrong-token")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 401 {
+		t.Errorf("expected 401 with wrong token, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCP_Auth_ValidToken(t *testing.T) {
+	t.Parallel()
+	h := newMCPHarness(t, multiHandler())
+
+	// The session was created with the correct token; any tool call should work.
+	result := h.callTool(t, "get_request_count", nil)
+	if result.IsError {
+		t.Error("tool call should succeed with valid token")
+	}
+}
+
+func TestMCP_Auth_NoToken(t *testing.T) {
+	t.Parallel()
+	// Create a server WITHOUT a token — should accept all requests.
+	h := newMCPHarnessNoAuth(t, multiHandler())
+	result := h.callTool(t, "get_request_count", nil)
+	if result.IsError {
+		t.Error("tool call should succeed with no auth configured")
 	}
 }
 

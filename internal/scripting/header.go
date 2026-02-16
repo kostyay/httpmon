@@ -9,6 +9,7 @@ import (
 
 // ScriptMeta holds parsed YAML frontmatter from a script file.
 type ScriptMeta struct {
+	ID      string   `yaml:"id,omitempty"`
 	Name    string   `yaml:"name"`
 	Match   []string `yaml:"match"`
 	Enabled *bool    `yaml:"enabled,omitempty"`
