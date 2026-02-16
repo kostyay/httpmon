@@ -232,10 +232,6 @@ func (s *Server) handleMockResponse(
 
 // createMockScript writes a mock script with header to the scripts directory.
 func createMockScript(dir, pattern, jsSource string) (string, error) {
-	if err := ensureDir(dir); err != nil {
-		return "", err
-	}
-
 	content := fmt.Sprintf(`// ---
 // name: mock-%s
 // match:
@@ -245,17 +241,7 @@ func createMockScript(dir, pattern, jsSource string) (string, error) {
 
 %s`, slugify(pattern), pattern, jsSource)
 
-	f, err := createTempFile(dir, "mock-*.js")
-	if err != nil {
-		return "", err
-	}
-	path := f.Name()
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		return "", err
-	}
-	f.Close()
-	return path, nil
+	return writeScriptFile(dir, "mock-*.js", content)
 }
 
 func slugify(s string) string {

@@ -92,12 +92,6 @@ func (s *Server) handleCreateScript(
 		return errorResult("code is required"), nil, nil
 	}
 
-	// Default enabled to true if omitted (Go zero value is false).
-	enabled := true
-	if !in.Enabled {
-		enabled = in.Enabled
-	}
-
 	// Build match lines.
 	var matchLines []string
 	for _, p := range in.MatchPatterns {
@@ -112,24 +106,12 @@ func (s *Server) handleCreateScript(
 // ---
 
 %s
-`, in.Name, strings.Join(matchLines, "\n"), enabled, in.Code)
+`, in.Name, strings.Join(matchLines, "\n"), in.Enabled, in.Code)
 
-	dir := s.cfg.Scripts.ScriptDir()
-	if err := ensureDir(dir); err != nil {
-		return errorResult(fmt.Sprintf("create dir: %v", err)), nil, nil
-	}
-
-	f, err := createTempFile(dir, "script-*.js")
+	path, err := writeScriptFile(s.cfg.Scripts.ScriptDir(), "script-*.js", content)
 	if err != nil {
-		return errorResult(fmt.Sprintf("create file: %v", err)), nil, nil
+		return errorResult(fmt.Sprintf("create script: %v", err)), nil, nil
 	}
-	path := f.Name()
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		return errorResult(fmt.Sprintf("write: %v", err)), nil, nil
-	}
-	f.Close()
-
 	s.cfg.Scripts.Reload()
 
 	return jsonResult(map[string]any{
@@ -254,10 +236,23 @@ func infoToSummary(info scripting.ScriptInfo) scriptSummary {
 	}
 }
 
-func ensureDir(dir string) error {
-	return os.MkdirAll(dir, 0o750)
-}
-
-func createTempFile(dir, pattern string) (*os.File, error) {
-	return os.CreateTemp(dir, pattern)
+// writeScriptFile creates a temp file in dir with the given prefix and content.
+func writeScriptFile(dir, prefix, content string) (string, error) {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, prefix)
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	_, writeErr := f.WriteString(content)
+	closeErr := f.Close()
+	if writeErr != nil {
+		return "", writeErr
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	return path, nil
 }
