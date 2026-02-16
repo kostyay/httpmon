@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -197,13 +196,3 @@ func (h *mcpHarness) waitForFlows(t *testing.T, n int) {
 	t.Fatalf("timed out waiting for %d flows (have %d)", n, h.store.Len())
 }
 
-func freePortMCP(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("freePort: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	return port
-}

@@ -70,30 +70,11 @@ type flowSummary struct {
 func (s *Server) handleListRequests(
 	_ context.Context, _ *mcp.CallToolRequest, in listRequestsInput,
 ) (*mcp.CallToolResult, any, error) {
-	limit := in.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-
-	var f store.Filter
-	if in.Filter != "" {
-		f = filter.Compile(in.Filter)
-	}
-
-	metas, total := s.cfg.Store.List(f, in.Offset, limit)
-	items := make([]flowSummary, len(metas))
-	for i, m := range metas {
-		items[i] = metaToSummary(m)
-	}
-
-	result := map[string]any{
-		"items": items,
+	metas, total := s.cfg.Store.List(parseFilter(in.Filter), in.Offset, clampLimit(in.Limit))
+	return jsonResult(map[string]any{
+		"items": metasToSummaries(metas),
 		"total": total,
-	}
-	return jsonResult(result), nil, nil
+	}), nil, nil
 }
 
 // --- get_request ---
@@ -164,23 +145,9 @@ func (s *Server) handleSearchRequests(
 		return errorResult("query is required"), nil, nil
 	}
 
-	limit := in.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-
-	f := filter.CompileQuick(in.Query)
-	metas, total := s.cfg.Store.List(f, in.Offset, limit)
-	items := make([]flowSummary, len(metas))
-	for i, m := range metas {
-		items[i] = metaToSummary(m)
-	}
-
+	metas, total := s.cfg.Store.List(filter.CompileQuick(in.Query), in.Offset, clampLimit(in.Limit))
 	return jsonResult(map[string]any{
-		"items": items,
+		"items": metasToSummaries(metas),
 		"total": total,
 	}), nil, nil
 }
@@ -194,12 +161,7 @@ type getRequestCountInput struct {
 func (s *Server) handleGetRequestCount(
 	_ context.Context, _ *mcp.CallToolRequest, in getRequestCountInput,
 ) (*mcp.CallToolResult, any, error) {
-	var f store.Filter
-	if in.Filter != "" {
-		f = filter.Compile(in.Filter)
-	}
-
-	_, total := s.cfg.Store.List(f, 0, 0)
+	_, total := s.cfg.Store.List(parseFilter(in.Filter), 0, 0)
 	return jsonResult(map[string]any{"total": total}), nil, nil
 }
 
@@ -223,11 +185,7 @@ func (s *Server) handleExportHAR(
 			}
 		}
 	} else {
-		var f store.Filter
-		if in.Filter != "" {
-			f = filter.Compile(in.Filter)
-		}
-		metas, _ = s.cfg.Store.List(f, 0, 0)
+		metas, _ = s.cfg.Store.List(parseFilter(in.Filter), 0, 0)
 	}
 
 	har := buildHAR(s.cfg.Store, metas)
@@ -236,6 +194,33 @@ func (s *Server) handleExportHAR(
 }
 
 // --- helpers ---
+
+// clampLimit applies default (50) and max (200) bounds to a pagination limit.
+func clampLimit(limit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > 200 {
+		return 200
+	}
+	return limit
+}
+
+// parseFilter compiles a filter expression, returning nil for empty input.
+func parseFilter(expr string) store.Filter {
+	if expr == "" {
+		return nil
+	}
+	return filter.Compile(expr)
+}
+
+func metasToSummaries(metas []store.FlowMeta) []flowSummary {
+	items := make([]flowSummary, len(metas))
+	for i, m := range metas {
+		items[i] = metaToSummary(m)
+	}
+	return items
+}
 
 func metaToSummary(m store.FlowMeta) flowSummary {
 	state := "completed"
@@ -308,10 +293,10 @@ func errorResult(msg string) *mcp.CallToolResult {
 }
 
 // buildHAR creates a HAR 1.2 document from the given flows.
-func buildHAR(store FlowReader, metas []store.FlowMeta) map[string]any {
+func buildHAR(reader FlowReader, metas []store.FlowMeta) map[string]any {
 	entries := make([]map[string]any, 0, len(metas))
 	for _, m := range metas {
-		_, data, err := store.Get(m.ID)
+		_, data, err := reader.Get(m.ID)
 		if err != nil {
 			continue
 		}
@@ -371,7 +356,7 @@ func harHeaders(h http.Header) []map[string]string {
 	if h == nil {
 		return nil
 	}
-	var out []map[string]string
+	out := make([]map[string]string, 0, len(h))
 	for k := range h {
 		out = append(out, map[string]string{
 			"name":  k,
