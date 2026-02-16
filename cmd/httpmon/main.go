@@ -38,10 +38,20 @@ func main() {
 	latencyFlag := flag.Duration("latency", 0, "added latency per response (e.g. 100ms)")
 	mcpFlag := flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
 	mcpAddrFlag := flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
+	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
+		return
+	}
+
+	if *mcpTokenFlag {
+		token, err := mcpserver.LoadOrCreateToken(*dataDir)
+		if err != nil {
+			fatal("mcp token: %v", err)
+		}
+		fmt.Println(token)
 		return
 	}
 
