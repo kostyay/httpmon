@@ -35,4 +35,3 @@ type ThrottleController interface {
 	GetThrottleBPS() int64
 	GetThrottleLatency() time.Duration
 }
-

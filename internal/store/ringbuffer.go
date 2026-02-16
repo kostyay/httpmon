@@ -58,6 +58,23 @@ func (rb *RingBuffer) Update(id FlowID, fn func(*FlowMeta)) {
 	fn(&rb.metas[slot])
 }
 
+// UpdateData applies fn to the FlowData for the given ID,
+// creating an empty FlowData if none exists yet.
+func (rb *RingBuffer) UpdateData(id FlowID, fn func(*FlowData)) {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	if _, ok := rb.index[id]; !ok {
+		return
+	}
+	d, ok := rb.data[id]
+	if !ok {
+		d = &FlowData{}
+		rb.data[id] = d
+	}
+	fn(d)
+}
+
 // SetData replaces the FlowData for the given ID.
 func (rb *RingBuffer) SetData(id FlowID, d *FlowData) {
 	rb.mu.Lock()

@@ -26,9 +26,9 @@ func TestThrottleSlowsTransfer(t *testing.T) {
 
 func TestThrottlePresets(t *testing.T) {
 	presets := map[string]int64{
-		"3g":   93750,     // 750kbps = 93750 B/s
-		"4g":   500000,    // 4Mbps = 500000 B/s
-		"wifi": 3750000,   // 30Mbps
+		"3g":   93750,   // 750kbps = 93750 B/s
+		"4g":   500000,  // 4Mbps = 500000 B/s
+		"wifi": 3750000, // 30Mbps
 	}
 	for name, expected := range presets {
 		p := PresetBandwidth(name)

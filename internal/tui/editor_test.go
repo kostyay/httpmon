@@ -73,7 +73,7 @@ func TestOpenInEditorNonEmpty(t *testing.T) {
 func TestEditKeyInDetail(t *testing.T) {
 	app := newMockApp(3)
 	app.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // enter detail
-	app.detailTab = 1                          // response tab
+	app.detailTab = 1                               // response tab
 
 	if !app.showDetail {
 		t.Fatal("expected showDetail=true")

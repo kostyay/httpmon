@@ -53,7 +53,7 @@ func renderImage(body []byte, width, height int) (string, error) {
 	}
 
 	// Canvas cell is roughly 2:1 (tall:wide), so halve height for aspect ratio.
-	canvasW := int32(min(width, math.MaxInt32))   // #nosec G115 -- clamped to MaxInt32
+	canvasW := int32(min(width, math.MaxInt32))    // #nosec G115 -- clamped to MaxInt32
 	canvasH := int32(min(height/2, math.MaxInt32)) // #nosec G115 -- clamped to MaxInt32
 	if canvasW < 1 {
 		canvasW = 1

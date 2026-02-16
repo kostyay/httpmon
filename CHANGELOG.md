@@ -1,6 +1,15 @@
 # Changelog
 
-## add-logo-assets
+## feat/process-identification
+
+Each proxied request now shows which OS process initiated it (#19). A new
+`internal/procinfo` package resolves PID and process name asynchronously via
+gopsutil, with a bounded semaphore, PID→name cache, and graceful fallback to
+em dash when permissions are insufficient. The list view gains a PROCESS column,
+tree view cycles through flat → host → process grouping via `t`, and the detail
+card displays PID and full command line. Supported on macOS and Linux.
+
+## [0.1.7](https://github.com/kostyay/httpmon/pull/14) - 2026-02-15
 
 Homebrew distribution via `brew tap kostyay/tap && brew install httpmon` is now
 configured through goreleaser's `homebrew_casks` integration (#13). Each release
