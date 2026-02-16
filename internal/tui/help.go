@@ -59,6 +59,7 @@ func helpGroups() []helpGroup {
 			title: "Global",
 			bindings: []helpBinding{
 				{"?", "Toggle this help"},
+				{"P", "Settings"},
 				{"S", "Scripts manager"},
 				{"T", "Throttle settings"},
 				{"q / Ctrl+C", "Quit"},

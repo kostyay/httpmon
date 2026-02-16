@@ -68,6 +68,8 @@ httpmon --throttle 3g            # Simulate 3G network (750 kbps)
 httpmon --throttle 4g            # Simulate 4G network (4 Mbps)
 httpmon --latency 100ms          # Add 100ms latency to responses
 httpmon --maplocal rules.json    # Serve local files for matching URLs
+httpmon --mcp                    # Start with MCP server enabled
+httpmon --mcp-token              # Print MCP bearer token
 httpmon --install-ca             # Install CA cert into system trust store (needs sudo)
 httpmon --version                # Print version
 ```
@@ -227,6 +229,49 @@ Press `M` to open the Map Local manager:
 Changes auto-save back to the rules file.
 
 Flows served from local files show a `[L]` indicator in the flow list.
+
+## MCP Server
+
+httpmon includes an MCP (Model Context Protocol) server so LLM agents can programmatically inspect and debug HTTP traffic.
+
+### Start the MCP server
+
+```bash
+httpmon --mcp                        # Start on default addr (127.0.0.1:9551)
+httpmon --mcp --mcp-addr :9600       # Custom address
+```
+
+### Get the bearer token
+
+```bash
+httpmon --mcp-token
+```
+
+### Configure Claude Code
+
+```bash
+claude mcp add --transport http httpmon http://127.0.0.1:9551/mcp \
+  --header "Authorization: Bearer $(httpmon --mcp-token)"
+```
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `list_requests` | List captured HTTP flows with optional filter |
+| `get_request` | Get full request/response details |
+| `search_requests` | Search flows by substring |
+| `get_request_count` | Count flows matching a filter |
+| `export_har` | Export flows as HAR 1.2 JSON |
+| `set_throttle` | Set bandwidth throttling (3g/4g/wifi presets) |
+| `get_throttle` | Get current throttle settings |
+| `replay_request` | Replay a captured request or compose a new one |
+| `mock_response` | Mock a response for matching URLs |
+| `list_scripts` | List scripting hooks |
+| `create_script` | Create a new script |
+| `get_script` | Get script source |
+| `toggle_script` | Enable/disable a script |
+| `delete_script` | Remove a script |
 
 ## Keyboard Shortcuts
 

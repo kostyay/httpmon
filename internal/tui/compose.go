@@ -133,7 +133,7 @@ func (a *App) sendCompose() (tea.Model, tea.Cmd) {
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- routes through our own MITM proxy CA
 			},
 		}
-		resp, doErr := client.Do(req)
+		resp, doErr := client.Do(req) // #nosec G704 -- user-composed request sent through local proxy
 		if doErr != nil {
 			return tea.Printf("Send failed: %v", doErr)
 		}
