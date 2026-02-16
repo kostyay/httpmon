@@ -22,8 +22,10 @@ type treeRow struct {
 }
 
 // Key extractors for grouping.
-func hostKey(f store.FlowMeta) string    { return f.Host }
-func processKey(f store.FlowMeta) string { return f.Process }
+func hostKey(f store.FlowMeta) string { return f.Host }
+func processKey(f store.FlowMeta) string {
+	return processLabel(f.Process, f.ProcessPID)
+}
 
 // buildGroups groups flows by keyFn, sorted by most recent activity.
 func buildGroups(

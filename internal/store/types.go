@@ -32,6 +32,7 @@ type FlowMeta struct {
 	ContentType string
 	Scheme      string
 	Process     string
+	ProcessPID  int32
 }
 
 // FlowData holds the full request/response headers and bodies.

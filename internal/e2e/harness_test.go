@@ -27,12 +27,12 @@ import (
 
 // harness wires a real upstream server, MITM proxy, store, and TUI app.
 type harness struct {
-	upstream *httptest.Server
-	proxy    *proxy.Proxy
-	store    *store.RingBuffer
-	app      *tui.App
-	client   *http.Client
-	cancel   context.CancelFunc
+	upstream  *httptest.Server
+	proxy     *proxy.Proxy
+	store     *store.RingBuffer
+	app       *tui.App
+	client    *http.Client
+	cancel    context.CancelFunc
 	proxyAddr string
 }
 

@@ -617,8 +617,8 @@ func TestProcessTreeEmptyProcess(t *testing.T) {
 	if len(app.treeRows) == 0 {
 		t.Fatal("expected at least 1 tree row")
 	}
-	if app.treeRows[0].GroupKey != "" {
-		t.Errorf("group key = %q, want empty string", app.treeRows[0].GroupKey)
+	if app.treeRows[0].GroupKey != "\u2014" {
+		t.Errorf("group key = %q, want em dash", app.treeRows[0].GroupKey)
 	}
 
 	// Expand group and check that flow row uses em dash for empty process.

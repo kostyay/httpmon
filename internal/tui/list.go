@@ -39,9 +39,9 @@ func (a *App) viewFlatList() string {
 		colMethod, "METHOD",
 		colStatus, "STATUS",
 		hostW, "HOST",
-		colProcess, "PROCESS",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -67,9 +67,9 @@ func (a *App) viewTreeList() string {
 	hdr := fmt.Sprintf("    %-*s %-*s %-*s %-*s %-*s %*s %*s",
 		colMethod, "METHOD",
 		colStatus, "STATUS",
-		colProcess, "PROCESS",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -99,9 +99,9 @@ func (a *App) viewFocusList() string {
 	hdr := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %*s %*s",
 		colMethod, "METHOD",
 		colStatus, "STATUS",
-		colProcess, "PROCESS",
 		pathW, "PATH",
 		colType, "TYPE",
+		colProcess, "PROCESS",
 		colDur, "DUR",
 		colSize, "SIZE",
 	)
@@ -113,7 +113,7 @@ func (a *App) viewFocusList() string {
 
 	a.writeRows(&b, len(a.treeRows), func(i int) string {
 		f := a.treeRows[i].Flow
-		return renderFlowColumns(f, pathW, "", truncPad(processLabel(f.Process), colProcess))
+		return renderFlowColumns(f, pathW, "", truncPad(processLabel(f.Process, f.ProcessPID), colProcess))
 	})
 
 	return b.String()
@@ -204,10 +204,13 @@ func (a *App) focusPathWidth() int {
 	return max(a.width-fixed, 10)
 }
 
-// processLabel returns the process name or an em dash if empty.
-func processLabel(proc string) string {
+// processLabel returns "name(pid)" or just name if pid is 0, or em dash if empty.
+func processLabel(proc string, pid int32) string {
 	if proc == "" {
 		return "\u2014"
+	}
+	if pid > 0 {
+		return fmt.Sprintf("%s(%d)", proc, pid)
 	}
 	return proc
 }
@@ -216,7 +219,7 @@ func (a *App) renderTreeRow(row treeRow, pathW int) string {
 	if row.IsHeader {
 		return a.renderGroupNode(row.GroupKey)
 	}
-	proc := processLabel(row.Flow.Process)
+	proc := processLabel(row.Flow.Process, row.Flow.ProcessPID)
 	return "    " + renderFlowColumns(row.Flow, pathW, "", truncPad(proc, colProcess))
 }
 
@@ -235,8 +238,9 @@ func (a *App) renderGroupNode(key string) string {
 	return fmt.Sprintf("%s %s (%d)", icon, key, count)
 }
 
-// renderFlowColumns formats method/status/path/dur/size columns.
-// hostCol and processCol are inserted between status and path when non-empty.
+// renderFlowColumns formats method/status/host?/path/type/process/dur/size columns.
+// hostCol is inserted between status and path when non-empty.
+// processCol is inserted after type when non-empty.
 func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string, processCol string) string {
 	method := styleMethod.Render(fmt.Sprintf("%-*s", colMethod, f.Method))
 
@@ -264,15 +268,16 @@ func renderFlowColumns(f store.FlowMeta, pathW int, hostCol string, processCol s
 	if hostCol != "" {
 		cols = append(cols, hostCol)
 	}
+	cols = append(cols, path, ctype)
 	if processCol != "" {
 		cols = append(cols, processCol)
 	}
-	cols = append(cols, path, ctype, dur, size)
+	cols = append(cols, dur, size)
 	return strings.Join(cols, " ")
 }
 
 func (a *App) renderFlowRow(f store.FlowMeta, hostW, pathW int) string {
-	return renderFlowColumns(f, pathW, truncPad(f.Host, hostW), truncPad(processLabel(f.Process), colProcess))
+	return renderFlowColumns(f, pathW, truncPad(f.Host, hostW), truncPad(processLabel(f.Process, f.ProcessPID), colProcess))
 }
 
 func formatDuration(d time.Duration) string {

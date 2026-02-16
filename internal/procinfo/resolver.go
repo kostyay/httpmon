@@ -90,6 +90,7 @@ func (r *Resolver) resolve(flowID string, clientPort uint16) {
 
 	r.store.Update(flowID, func(m *store.FlowMeta) {
 		m.Process = name
+		m.ProcessPID = pid
 	})
 	r.store.UpdateData(flowID, func(d *store.FlowData) {
 		d.ProcessPID = pid
