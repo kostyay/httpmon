@@ -225,8 +225,7 @@ func (s *Server) handleMockResponse(
 	s.cfg.Scripts.Reload()
 
 	return jsonResult(map[string]any{
-		"script_path": path,
-		"name":        "mock",
+		"script_id": s.scriptIDByPath(path),
 	}), nil, nil
 }
 
