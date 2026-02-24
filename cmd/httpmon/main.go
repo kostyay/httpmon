@@ -27,6 +27,15 @@ import (
 
 var version = "dev"
 
+// stringSlice implements flag.Value for repeatable string flags.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 func main() {
 	flag.Int("port", 8080, "proxy listen port")
 	dataDir := flag.String("data-dir", defaultDataDir(), "data directory for CA certs")
@@ -40,6 +49,8 @@ func main() {
 	flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
 	flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
 	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
+	var protoPaths stringSlice
+	flag.Var(&protoPaths, "proto-path", "path to .proto file or directory (repeatable)")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,6 +63,11 @@ func main() {
 		fatal("config: %v", cfgErr)
 	}
 	config.ApplyFlags(cfg, flag.Visit)
+
+	// Merge proto paths: config first, CLI appended.
+	if len(protoPaths) > 0 {
+		cfg.ProtoPaths = append(cfg.ProtoPaths, protoPaths...)
+	}
 
 	// --mcp-addr implies --mcp.
 	flag.Visit(func(f *flag.Flag) {
