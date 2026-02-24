@@ -1,6 +1,9 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
+env:
+  - HOMEBREW_TAP_TOKEN={{ if index .Env "HOMEBREW_TAP_TOKEN" }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ else }}{{ .Env.GITHUB_TOKEN }}{{ end }}
+
 builds:
   - id: httpmon
     main: ./cmd/httpmon
@@ -34,7 +37,7 @@ homebrew_casks:
   - repository:
       owner: kostyay
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN | default .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://httpmon.dev"
     description: "Terminal-native HTTP/HTTPS debugging proxy"
     license: "MIT"
