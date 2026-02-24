@@ -4,6 +4,7 @@ package testpkg;
 
 option go_package = "github.com/kostyay/httpmon/internal/e2e/testpb";
 
+
 service Greeter {
   rpc SayHello (HelloRequest) returns (HelloReply) {}
 }
