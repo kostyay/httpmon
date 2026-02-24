@@ -34,7 +34,7 @@ homebrew_casks:
   - repository:
       owner: kostyay
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN | default .Env.GITHUB_TOKEN }}"
     homepage: "https://httpmon.dev"
     description: "Terminal-native HTTP/HTTPS debugging proxy"
     license: "MIT"
