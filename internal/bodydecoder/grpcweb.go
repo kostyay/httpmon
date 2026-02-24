@@ -19,13 +19,7 @@ type GRPCWebDecoder struct {
 }
 
 func (d *GRPCWebDecoder) CanDecode(contentType string) bool {
-	ct := stripParams(contentType)
-	for _, t := range grpcWebContentTypes {
-		if ct == t {
-			return true
-		}
-	}
-	return false
+	return matchesContentType(contentType, grpcWebContentTypes)
 }
 
 func (d *GRPCWebDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
@@ -34,19 +28,13 @@ func (d *GRPCWebDecoder) Decode(body []byte, meta DecoderMetadata) (string, stri
 		return "", "", fmt.Errorf("grpc-web frame: %w", err)
 	}
 
-	var result string
-	var resultCT string
-
+	result, resultCT := "{}", "application/json"
 	if len(payload) > 0 {
 		decoded, ct, decErr := d.Proto.Decode(payload, meta)
 		if decErr != nil {
 			return "", "", fmt.Errorf("grpc-web payload decode: %w", decErr)
 		}
-		result = decoded
-		resultCT = ct
-	} else {
-		result = "{}"
-		resultCT = "application/json"
+		result, resultCT = decoded, ct
 	}
 
 	if len(notes) > 0 {
