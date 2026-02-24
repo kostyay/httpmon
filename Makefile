@@ -41,7 +41,7 @@ generate-proto:
 
 security:
 	@echo "==> gosec"
-	@command -v gosec >/dev/null 2>&1 && gosec ./... || echo "gosec not installed (go install github.com/securego/gosec/v2/cmd/gosec@latest)"
+	@command -v gosec >/dev/null 2>&1 && gosec -exclude-dir=internal/e2e/testpb ./... || echo "gosec not installed (go install github.com/securego/gosec/v2/cmd/gosec@latest)"
 	@echo "==> govulncheck"
 	@command -v govulncheck >/dev/null 2>&1 && govulncheck ./... || echo "govulncheck not installed (go install golang.org/x/vuln/cmd/govulncheck@latest)"
 	@echo "==> gitleaks"
