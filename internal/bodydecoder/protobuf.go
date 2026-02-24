@@ -20,8 +20,11 @@ var protobufContentTypes = []string{
 }
 
 // RawProtobufDecoder decodes protobuf wire format into a JSON-like
-// representation using field numbers as keys.
-type RawProtobufDecoder struct{}
+// representation using field numbers as keys. When ProtoReg is set and
+// the request has a gRPC path, it attempts named message decode first.
+type RawProtobufDecoder struct {
+	ProtoReg *ProtoRegistry
+}
 
 func (d *RawProtobufDecoder) CanDecode(contentType string) bool {
 	ct := stripParams(contentType)
@@ -33,7 +36,20 @@ func (d *RawProtobufDecoder) CanDecode(contentType string) bool {
 	return false
 }
 
-func (d *RawProtobufDecoder) Decode(body []byte, _ DecoderMetadata) (string, string, error) {
+func (d *RawProtobufDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
+	// Try named decode if proto registry is available and we have a gRPC path.
+	if d.ProtoReg != nil && d.ProtoReg.HasMethods() && meta.RequestPath != "" {
+		if decoded, err := d.ProtoReg.DecodeNamed(body, meta.RequestPath, meta.IsRequest); err == nil {
+			return decoded, "application/json", nil
+		}
+		// Fall through to raw wire decode on failure.
+	}
+
+	return d.decodeRaw(body)
+}
+
+// decodeRaw performs raw wire-format decoding (field numbers as keys).
+func (d *RawProtobufDecoder) decodeRaw(body []byte) (string, string, error) {
 	fields, err := decodeWireFields(body)
 	if err != nil {
 		return "", "", fmt.Errorf("protobuf wire decode: %w", err)

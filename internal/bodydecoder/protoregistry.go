@@ -1,0 +1,179 @@
+package bodydecoder
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/bufbuild/protocompile"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
+)
+
+// ProtoRegistry holds compiled proto file descriptors and provides
+// service/method lookup for named message decoding.
+type ProtoRegistry struct {
+	// methods maps "package.Service/Method" → MethodDescriptor.
+	methods map[string]protoreflect.MethodDescriptor
+}
+
+// LoadProtoFiles compiles .proto files from the given paths into a registry.
+// Paths may be files or directories (recursively globbed for *.proto).
+// Returns the registry and any non-fatal errors (bad files are skipped).
+func LoadProtoFiles(paths []string) (*ProtoRegistry, []error) {
+	protoFiles, importDirs, errs := resolveProtoPaths(paths)
+	if len(protoFiles) == 0 {
+		return &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}, errs
+	}
+
+	compiler := protocompile.Compiler{
+		Resolver: &protocompile.SourceResolver{
+			ImportPaths: importDirs,
+		},
+	}
+
+	compiled, err := compiler.Compile(context.Background(), protoFiles...)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("proto compile: %w", err))
+		return &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}, errs
+	}
+
+	reg := &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}
+	for _, f := range compiled {
+		services := f.Services()
+		for i := 0; i < services.Len(); i++ {
+			svc := services.Get(i)
+			methods := svc.Methods()
+			for j := 0; j < methods.Len(); j++ {
+				m := methods.Get(j)
+				key := string(svc.FullName()) + "/" + string(m.Name())
+				reg.methods[key] = m
+			}
+		}
+	}
+	return reg, errs
+}
+
+// LookupMethod finds a method descriptor by matching the gRPC path suffix.
+// The path format is /{prefix}/{package.Service}/{Method}; the last two
+// segments are used for lookup.
+func (r *ProtoRegistry) LookupMethod(requestPath string) (protoreflect.MethodDescriptor, bool) {
+	if r == nil || len(r.methods) == 0 {
+		return nil, false
+	}
+	svc, method := extractGRPCPath(requestPath)
+	if svc == "" || method == "" {
+		return nil, false
+	}
+	m, ok := r.methods[svc+"/"+method]
+	return m, ok
+}
+
+// DecodeNamed attempts to decode body as a named protobuf message.
+// isRequest selects input vs output message type.
+func (r *ProtoRegistry) DecodeNamed(body []byte, requestPath string, isRequest bool) (string, error) {
+	method, ok := r.LookupMethod(requestPath)
+	if !ok {
+		return "", fmt.Errorf("no method descriptor for path %q", requestPath)
+	}
+
+	var msgDesc protoreflect.MessageDescriptor
+	if isRequest {
+		msgDesc = method.Input()
+	} else {
+		msgDesc = method.Output()
+	}
+
+	msg := dynamicpb.NewMessage(msgDesc)
+	if err := proto.Unmarshal(body, msg); err != nil {
+		return "", fmt.Errorf("unmarshal %s: %w", msgDesc.FullName(), err)
+	}
+
+	opts := protojson.MarshalOptions{
+		Multiline:       true,
+		Indent:          "  ",
+		EmitUnpopulated: false,
+	}
+	out, err := opts.Marshal(msg)
+	if err != nil {
+		return "", fmt.Errorf("marshal json: %w", err)
+	}
+	return string(out), nil
+}
+
+// HasMethods returns true if any service methods were loaded.
+func (r *ProtoRegistry) HasMethods() bool {
+	return r != nil && len(r.methods) > 0
+}
+
+// extractGRPCPath extracts "package.Service" and "Method" from a gRPC path.
+// Handles paths with arbitrary prefix: /prefix/package.Service/Method
+func extractGRPCPath(path string) (service, method string) {
+	path = strings.TrimPrefix(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return "", ""
+	}
+	// Last two segments are service and method.
+	method = parts[len(parts)-1]
+	service = parts[len(parts)-2]
+	if service == "" || method == "" {
+		return "", ""
+	}
+	return service, method
+}
+
+// resolveProtoPaths expands paths into individual .proto files and
+// collects import root directories.
+func resolveProtoPaths(paths []string) (files []string, importDirs []string, errs []error) {
+	seen := map[string]bool{}
+	dirSet := map[string]bool{}
+
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("proto path %q: %w", p, err))
+			continue
+		}
+
+		if info.IsDir() {
+			dirSet[p] = true
+			err := filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return nil // skip errors
+				}
+				if !d.IsDir() && strings.HasSuffix(path, ".proto") {
+					rel, relErr := filepath.Rel(p, path)
+					if relErr != nil {
+						rel = path
+					}
+					if !seen[rel] {
+						seen[rel] = true
+						files = append(files, rel)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				errs = append(errs, fmt.Errorf("walk %q: %w", p, err))
+			}
+		} else {
+			dir := filepath.Dir(p)
+			dirSet[dir] = true
+			base := filepath.Base(p)
+			if !seen[base] {
+				seen[base] = true
+				files = append(files, base)
+			}
+		}
+	}
+
+	for d := range dirSet {
+		importDirs = append(importDirs, d)
+	}
+	return files, importDirs, errs
+}
