@@ -140,6 +140,9 @@ type App struct {
 	detailRaw          bool            // false=pretty-print, true=raw
 	detailImagePreview bool            // true=show image as terminal art
 	detailCollapsed    map[string]bool // collapsed sections: "general", "headers", "body"
+	detailDecodeErr    string          // proto decode error for status bar
+
+	bodyDecoder BodyDecoderRegistry
 
 	width, height int
 	ready         bool
@@ -155,6 +158,7 @@ type AppConfig struct {
 	Breakpoints breakpoint.Controller
 	MCP         MCPServer
 	DataDir     string
+	BodyDecoder BodyDecoderRegistry
 }
 
 // NewApp creates a TUI application from the given config.
@@ -175,6 +179,7 @@ func NewApp(cfg AppConfig) *App {
 		throttle:        cfg.Throttle,
 		mcp:             cfg.MCP,
 		dataDir:         cfg.DataDir,
+		bodyDecoder:     cfg.BodyDecoder,
 		filterInput:     ti,
 		searchInput:     si,
 		groupExpanded:   make(map[string]bool),
@@ -815,8 +820,15 @@ func (a *App) updateDetailContent() {
 		a.detailImagePreview = false
 	}
 
-	darkBg := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	a.detailVP.SetContent(renderDetailBody(meta, data, a.detailTab, a.width, darkBg, !a.detailRaw, a.detailCollapsed))
+	opts := renderOpts{
+		DarkBg:     lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
+		PrettyJSON: !a.detailRaw,
+		Collapsed:  a.detailCollapsed,
+		Decoder:    a.bodyDecoder,
+	}
+	content, decErr := renderDetailBody(meta, data, a.detailTab, opts)
+	a.detailDecodeErr = decErr
+	a.detailVP.SetContent(content)
 }
 
 func (a *App) proxyAddr() string {

@@ -6,6 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20260212100304-e18737634dea
+	connectrpc.com/connect v1.19.1
 	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/bufbuild/protocompile v0.14.1
 	github.com/charmbracelet/x/ansi v0.11.6

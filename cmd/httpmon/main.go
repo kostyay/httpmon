@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/config"
@@ -162,6 +163,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), cfg.MCPToken)
 	}
 
+	// Build body decoder registry for protobuf/gRPC decoding.
+	// Even without .proto files, raw wire-format decoding is available.
+	protoDec := &bodydecoder.RawProtobufDecoder{}
+	if len(cfg.ProtoPaths) > 0 {
+		protoReg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths)
+		for _, e := range protoErrs {
+			fmt.Fprintf(os.Stderr, "proto: %v\n", e)
+		}
+		protoDec.ProtoReg = protoReg
+	}
+	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
+	decoderReg := bodydecoder.NewRegistry(grpcDec, protoDec)
+
 	tuiCfg := tui.AppConfig{
 		Store:       s,
 		Proxy:       p,
@@ -170,6 +184,7 @@ func main() {
 		Throttle:    p,
 		Breakpoints: bpCtrl,
 		DataDir:     *dataDir,
+		BodyDecoder: decoderReg,
 	}
 	if mcpSrv != nil {
 		tuiCfg.MCP = mcpSrv

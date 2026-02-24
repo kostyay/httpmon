@@ -4,6 +4,8 @@ charm.land/bubbletea/v2 v2.0.0-rc.2 h1:TdTbUOFzbufDJmSz/3gomL6q+fR6HwfY+P13hXQzD
 charm.land/bubbletea/v2 v2.0.0-rc.2/go.mod h1:IXFmnCnMLTWw/KQ9rEatSYqbAPAYi8kA3Yqwa1SFnLk=
 charm.land/lipgloss/v2 v2.0.0-beta.3.0.20260212100304-e18737634dea h1:XBmpGhIKPN8o9VjuXg+X5WXFsEqUs/YtPx0Q0zzmTTA=
 charm.land/lipgloss/v2 v2.0.0-beta.3.0.20260212100304-e18737634dea/go.mod h1:xylWHUuJWcFJqoGrKdZP8Z0y3THC6xqrnfl1IYDviTE=
+connectrpc.com/connect v1.19.1 h1:R5M57z05+90EfEvCY1b7hBxDVOUl45PrtXtAV2fOC14=
+connectrpc.com/connect v1.19.1/go.mod h1:tN20fjdGlewnSFeZxLKb0xwIZ6ozc3OQs2hTXy4du9w=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
 github.com/Masterminds/semver/v3 v3.2.1 h1:RN9w6+7QoMeJVGyfmbcgs28Br8cvmnucEXnY0rYXWg0=

@@ -56,10 +56,10 @@ func (d *GRPCWebDecoder) Decode(body []byte, meta DecoderMetadata) (string, stri
 }
 
 const (
-	frameHeaderLen    = 5
-	flagData          = 0x00
-	flagCompressed    = 0x01
-	flagTrailers      = 0x80
+	frameHeaderLen = 5
+	flagData       = 0x00
+	flagCompressed = 0x01
+	flagTrailers   = 0x80
 )
 
 // extractDataFrames parses gRPC-Web framing and returns the concatenated
@@ -77,7 +77,7 @@ func extractDataFrames(body []byte) (payload []byte, notes []string, err error) 
 
 		truncated := false
 		frameData := remaining
-		if uint32(len(remaining)) < length {
+		if uint64(len(remaining)) < uint64(length) {
 			// Truncated frame — decode what we have.
 			truncated = true
 			notes = append(notes, fmt.Sprintf("truncated frame: expected %d bytes, got %d", length, len(remaining)))
