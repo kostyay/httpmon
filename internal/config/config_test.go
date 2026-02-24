@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -46,7 +47,11 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if *got != *orig {
+	if got.ProxyPort != orig.ProxyPort || got.MCPEnabled != orig.MCPEnabled ||
+		got.MCPAddr != orig.MCPAddr || got.MCPToken != orig.MCPToken ||
+		got.BufferSize != orig.BufferSize || got.ThrottlePreset != orig.ThrottlePreset ||
+		got.ListMode != orig.ListMode || got.TreeGroupBy != orig.TreeGroupBy ||
+		!slices.Equal(got.ProtoPaths, orig.ProtoPaths) {
 		t.Errorf("roundtrip mismatch:\n got %+v\nwant %+v", got, orig)
 	}
 }
@@ -218,5 +223,56 @@ func TestLoad_UnreadableFile(t *testing.T) {
 	_, err := Load(dir)
 	if err == nil {
 		t.Fatal("expected error for unreadable file")
+	}
+}
+
+func TestProtoPaths_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.ProtoPaths = []string{"/home/user/protos", "/home/user/api/service.proto"}
+
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !slices.Equal(loaded.ProtoPaths, cfg.ProtoPaths) {
+		t.Errorf("ProtoPaths = %v, want %v", loaded.ProtoPaths, cfg.ProtoPaths)
+	}
+}
+
+func TestProtoPaths_OmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, configFile))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := raw["proto_paths"]; ok {
+		t.Error("proto_paths should be omitted when empty")
+	}
+}
+
+func TestProtoPaths_MissingFieldLoadsNil(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, configFile), []byte(`{"proxy_port":8080}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.ProtoPaths) != 0 {
+		t.Errorf("expected nil/empty ProtoPaths, got %v", loaded.ProtoPaths)
 	}
 }

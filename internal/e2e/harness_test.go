@@ -25,6 +25,18 @@ import (
 	"github.com/kostyay/httpmon/internal/tui"
 )
 
+// harnessOpt configures optional harness behavior.
+type harnessOpt func(*harnessConfig)
+
+type harnessConfig struct {
+	bodyDecoder tui.BodyDecoderRegistry
+}
+
+// withBodyDecoder injects a body decoder registry into the TUI app.
+func withBodyDecoder(reg tui.BodyDecoderRegistry) harnessOpt {
+	return func(c *harnessConfig) { c.bodyDecoder = reg }
+}
+
 // harness wires a real upstream server, MITM proxy, store, and TUI app.
 type harness struct {
 	upstream  *httptest.Server
@@ -36,7 +48,7 @@ type harness struct {
 	proxyAddr string
 }
 
-func newHarness(t *testing.T, handler http.Handler) *harness {
+func newHarness(t *testing.T, handler http.Handler, opts ...harnessOpt) *harness {
 	t.Helper()
 
 	upstream := httptest.NewServer(handler)
@@ -58,11 +70,17 @@ func newHarness(t *testing.T, handler http.Handler) *harness {
 
 	waitForListener(t, addr)
 
+	var cfg harnessConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	app := tui.NewApp(tui.AppConfig{
-		Store:     s,
-		Proxy:     p,
-		CATrusted: true,
-		Throttle:  p,
+		Store:       s,
+		Proxy:       p,
+		CATrusted:   true,
+		Throttle:    p,
+		BodyDecoder: cfg.bodyDecoder,
 	})
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 

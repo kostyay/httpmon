@@ -3,6 +3,7 @@ package tui
 import (
 	"time"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -40,4 +41,10 @@ type ThrottleController interface {
 type MCPServer interface {
 	Running() bool
 	Port() int
+}
+
+// BodyDecoderRegistry decodes wire-format bodies (e.g. protobuf) into
+// human-readable text for display in the detail view.
+type BodyDecoderRegistry interface {
+	Decode(body []byte, contentType string, meta bodydecoder.DecoderMetadata) (decoded string, resultContentType string, err error)
 }

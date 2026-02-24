@@ -1,6 +1,18 @@
 # Changelog
 
-## feat/config-package-go126
+## feat/bodydecoder-registry
+
+Protobuf and gRPC-Web bodies are now decoded into human-readable text in the
+detail view (#26). A new `--proto-path` flag loads `.proto` files for named
+message decoding; without it, raw wire-format decoding is always available. The
+`BodyDecoderRegistry` interface threads through the TUI port layer, and a
+`renderOpts` refactor replaces six positional render arguments with a single
+struct. Protobuf/gRPC MIME types are removed from the binary blocklist so they
+flow through the decoder pipeline. A gRPC-Web frame parser fix resolves a gosec
+G115 integer overflow, and a new E2E test exercises a full Connect RPC
+round-trip with proto decoding.
+
+## [feat/config-package-go126](https://github.com/kostyay/httpmon/pull/22) - 2026-02-16
 
 Persistent configuration via `~/.httpmon/config.json` replaces pure CLI-flag
 defaults (#22). A new `internal/config` package handles Load/Save with automatic
