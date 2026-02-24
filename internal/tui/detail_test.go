@@ -79,7 +79,7 @@ func TestDetailHidesProcessWhenNoPID(t *testing.T) {
 }
 
 func TestRenderDetailBodyNilMeta(t *testing.T) {
-	out := renderDetailBody(nil, nil, 0, 80, true, true, nil)
+	out, _ := renderDetailBody(nil, nil, 0, renderOpts{DarkBg: true, PrettyJSON: true})
 	if !strings.Contains(out, "no longer available") {
 		t.Errorf("expected 'no longer available', got: %s", out)
 	}
@@ -90,7 +90,7 @@ func TestRenderResponseDetailInProgress(t *testing.T) {
 		ID: "ip1", Method: "GET", Host: "example.com",
 		Path: "/", State: store.StateInProgress,
 	}
-	out := renderDetailBody(meta, nil, 1, 80, true, true, nil)
+	out, _ := renderDetailBody(meta, nil, 1, renderOpts{DarkBg: true, PrettyJSON: true})
 	stripped := ansi.Strip(out)
 	if !strings.Contains(stripped, "Awaiting response") {
 		t.Errorf("expected 'Awaiting response', got: %s", stripped)
@@ -110,7 +110,7 @@ func TestRenderResponseDetailCompleted(t *testing.T) {
 		},
 		ResponseBody: []byte(`{"ok":true}`),
 	}
-	out := renderDetailBody(meta, data, 1, 80, true, true, nil)
+	out, _ := renderDetailBody(meta, data, 1, renderOpts{DarkBg: true, PrettyJSON: true})
 	stripped := ansi.Strip(out)
 	for _, want := range []string{"200", "application/json", "X-Custom", "hello", "ok"} {
 		if !strings.Contains(stripped, want) {

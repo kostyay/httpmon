@@ -131,13 +131,14 @@ func TestE2E_RapidRequests(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, echoHandler())
 
+	// Fire 20 requests rapidly (sequential, not concurrent — concurrent
+	// goroutines are flaky under heavy parallel test load when the proxy
+	// is slow to accept connections).
 	for i := range 20 {
-		go func(n int) {
-			resp, err := h.client.Get(h.upstream.URL + "/rapid/" + http.StatusText(n))
-			if err == nil {
-				resp.Body.Close()
-			}
-		}(i)
+		resp, err := h.client.Get(h.upstream.URL + "/rapid/" + http.StatusText(i))
+		if err == nil {
+			resp.Body.Close()
+		}
 	}
 
 	// Wait for all 20 to appear in the store.

@@ -13,12 +13,12 @@ import (
 )
 
 type settingsField struct {
-	label    string
-	kind     string // "int", "bool", "enum", "string"
-	options  []string
-	restart  bool
-	get      func(*config.Config) string
-	set      func(*config.Config, string)
+	label   string
+	kind    string // "int", "bool", "enum", "string"
+	options []string
+	restart bool
+	get     func(*config.Config) string
+	set     func(*config.Config, string)
 }
 
 var settingsFields = []settingsField{

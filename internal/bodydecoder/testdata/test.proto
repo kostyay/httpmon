@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package testpkg;
+
+option go_package = "github.com/kostyay/httpmon/internal/e2e/testpb";
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+}
+
+message HelloRequest {
+  string name = 1;
+  int32 age = 2;
+}
+
+message HelloReply {
+  string message = 1;
+  bool success = 2;
+}

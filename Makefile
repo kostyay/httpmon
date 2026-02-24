@@ -1,4 +1,4 @@
-.PHONY: all fmt lint test e2e build clean security release
+.PHONY: all fmt lint test e2e build clean security release generate-proto
 
 all: lint test build
 
@@ -30,6 +30,14 @@ release: lint test security
 	printf "Release $$TAG? [y/N] " && read ans && [ "$$ans" = y ] && \
 	git tag "$$TAG" && git push origin "$$TAG" && \
 	GITHUB_TOKEN=$$(gh auth token) goreleaser release --clean
+
+# Requires: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+#           go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+#           go install github.com/bufbuild/buf/cmd/buf@latest
+generate-proto:
+	buf generate \
+		--template '{"version":"v2","plugins":[{"remote":"buf.build/protocolbuffers/go","out":"internal/e2e/testpb","opt":"paths=source_relative"},{"remote":"buf.build/connectrpc/go","out":"internal/e2e/testpb","opt":"paths=source_relative"}]}' \
+		internal/bodydecoder/testdata/test.proto
 
 security:
 	@echo "==> gosec"

@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/highlight"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -70,6 +72,8 @@ func (a *App) viewDetail() string {
 		} else {
 			bar = fmt.Sprintf("search: %s  %s  n/N:next/prev  Esc:clear", a.searchQuery, matchInfo)
 		}
+	} else if a.detailDecodeErr != "" {
+		bar = fmt.Sprintf("proto: %s  %s", a.detailDecodeErr, scrollPct)
 	} else {
 		bar = fmt.Sprintf("1/2 tabs  p:%s  e:edit%s  g/h/b:sections  Space:actions  Esc back  %s", mode, imageHint, scrollPct)
 	}
@@ -107,26 +111,35 @@ func sectionIcon(collapsed bool) string {
 	return "▾"
 }
 
-func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, width int, darkBg bool, prettyJSON bool, collapsed map[string]bool) string {
+// renderOpts bundles display options threaded through the detail render pipeline.
+type renderOpts struct {
+	DarkBg     bool
+	PrettyJSON bool
+	Collapsed  map[string]bool
+	Decoder    BodyDecoderRegistry
+}
+
+func renderDetailBody(meta *store.FlowMeta, data *store.FlowData, tab int, opts renderOpts) (string, string) {
 	if meta == nil {
-		return "Flow no longer available."
+		return "Flow no longer available.", ""
 	}
 
 	var b strings.Builder
+	var decErr string
 
 	if tab == 0 {
-		renderRequestDetail(&b, meta, data, darkBg, prettyJSON, collapsed)
+		decErr = renderRequestDetail(&b, meta, data, opts)
 	} else {
-		renderResponseDetail(&b, meta, data, darkBg, prettyJSON, collapsed)
+		decErr = renderResponseDetail(&b, meta, data, opts)
 	}
 
-	return b.String()
+	return b.String(), decErr
 }
 
-func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool, collapsed map[string]bool) {
-	b.WriteString(styleSection.Render(sectionIcon(collapsed["general"]) + " General"))
+func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, opts renderOpts) string {
+	b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["general"]) + " General"))
 	b.WriteString("\n")
-	if !collapsed["general"] {
+	if !opts.Collapsed["general"] {
 		fmt.Fprintf(b, "  Method: %s\n", meta.Method)
 		fmt.Fprintf(b, "  URL: %s://%s%s\n", meta.Scheme, meta.Host, meta.Path)
 		fmt.Fprintf(b, "  Scheme: %s\n", meta.Scheme)
@@ -134,38 +147,39 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 	b.WriteString("\n")
 
 	if data != nil && data.ProcessPID != 0 {
-		renderProcessSection(b, meta, data, collapsed["process"])
+		renderProcessSection(b, meta, data, opts.Collapsed["process"])
 	}
 
 	if data == nil {
-		return
+		return ""
 	}
 
 	if data.RequestHeaders != nil {
-		renderHeaders(b, "Request Headers", data.RequestHeaders, collapsed["headers"])
+		renderHeaders(b, "Request Headers", data.RequestHeaders, opts.Collapsed["headers"])
 	}
 
 	if len(data.RequestBody) > 0 {
-		b.WriteString(styleSection.Render(sectionIcon(collapsed["body"]) + " Body"))
+		b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["body"]) + " Body"))
 		b.WriteString("\n")
-		if !collapsed["body"] {
-			renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), darkBg, prettyJSON)
-		} else {
-			b.WriteString("\n")
+		if !opts.Collapsed["body"] {
+			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, IsRequest: true}
+			return renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), opts, dm)
 		}
+		b.WriteString("\n")
 	}
+	return ""
 }
 
-func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, darkBg bool, prettyJSON bool, collapsed map[string]bool) {
+func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.FlowData, opts renderOpts) string {
 	if meta.State == store.StateInProgress {
 		b.WriteString(styleMuted.Render("Awaiting response..."))
 		b.WriteString("\n")
-		return
+		return ""
 	}
 
-	b.WriteString(styleSection.Render(sectionIcon(collapsed["general"]) + " General"))
+	b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["general"]) + " General"))
 	b.WriteString("\n")
-	if !collapsed["general"] {
+	if !opts.Collapsed["general"] {
 		fmt.Fprintf(b, "  Status: %d\n", meta.StatusCode)
 		fmt.Fprintf(b, "  Content-Type: %s\n", meta.ContentType)
 		fmt.Fprintf(b, "  Duration: %s\n", formatDuration(meta.Duration))
@@ -174,22 +188,23 @@ func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.
 	b.WriteString("\n")
 
 	if data == nil {
-		return
+		return ""
 	}
 
 	if data.ResponseHeaders != nil {
-		renderHeaders(b, "Response Headers", data.ResponseHeaders, collapsed["headers"])
+		renderHeaders(b, "Response Headers", data.ResponseHeaders, opts.Collapsed["headers"])
 	}
 
 	if len(data.ResponseBody) > 0 {
-		b.WriteString(styleSection.Render(sectionIcon(collapsed["body"]) + " Body"))
+		b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["body"]) + " Body"))
 		b.WriteString("\n")
-		if !collapsed["body"] {
-			renderBody(b, data.ResponseBody, meta.ContentType, darkBg, prettyJSON)
-		} else {
-			b.WriteString("\n")
+		if !opts.Collapsed["body"] {
+			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, IsRequest: false}
+			return renderBody(b, data.ResponseBody, meta.ContentType, opts, dm)
 		}
+		b.WriteString("\n")
 	}
+	return ""
 }
 
 func renderHeaders(b *strings.Builder, title string, h map[string][]string, collapsed bool) {
@@ -229,8 +244,22 @@ func renderProcessSection(b *strings.Builder, meta *store.FlowMeta, data *store.
 	b.WriteString("\n")
 }
 
-func renderBody(b *strings.Builder, body []byte, contentType string, darkBg bool, prettyJSON bool) {
-	highlighted := highlight.Highlight(body, contentType, darkBg, prettyJSON)
+func renderBody(b *strings.Builder, body []byte, contentType string, opts renderOpts, meta bodydecoder.DecoderMetadata) string {
+	displayBody := body
+	displayCT := contentType
+	var decErr string
+
+	if opts.Decoder != nil {
+		decoded, resultCT, err := opts.Decoder.Decode(body, contentType, meta)
+		if err == nil {
+			displayBody = []byte(decoded)
+			displayCT = resultCT
+		} else if !errors.Is(err, bodydecoder.ErrNoDecoder) {
+			decErr = err.Error()
+		}
+	}
+
+	highlighted := highlight.Highlight(displayBody, displayCT, opts.DarkBg, opts.PrettyJSON)
 	lines := strings.Split(highlighted, "\n")
 	if len(lines) > maxBodyLines {
 		totalLines := len(lines)
@@ -241,4 +270,5 @@ func renderBody(b *strings.Builder, body []byte, contentType string, darkBg bool
 		b.WriteString("  " + line + "\n")
 	}
 	b.WriteString("\n")
+	return decErr
 }

@@ -6,7 +6,9 @@ require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20260212100304-e18737634dea
+	connectrpc.com/connect v1.19.1
 	github.com/alecthomas/chroma/v2 v2.23.1
+	github.com/bufbuild/protocompile v0.14.1
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
 	github.com/lqqyt2423/go-mitmproxy v1.8.8
@@ -17,6 +19,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/image v0.36.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -77,7 +78,7 @@ func TestRenderBodyTruncation(t *testing.T) {
 		body := []byte(strings.Join(lines, "\n"))
 
 		var b strings.Builder
-		renderBody(&b, body, "text/plain", true, false)
+		renderBody(&b, body, "text/plain", renderOpts{DarkBg: true}, bodydecoder.DecoderMetadata{})
 		out := ansi.Strip(b.String())
 		if !strings.Contains(out, "truncated") {
 			t.Errorf("expected 'truncated' in output, got: %s", out)
@@ -88,7 +89,7 @@ func TestRenderBodyTruncation(t *testing.T) {
 		body := []byte("short\nbody\n")
 
 		var b strings.Builder
-		renderBody(&b, body, "text/plain", true, false)
+		renderBody(&b, body, "text/plain", renderOpts{DarkBg: true}, bodydecoder.DecoderMetadata{})
 		out := ansi.Strip(b.String())
 		if strings.Contains(out, "truncated") {
 			t.Errorf("short body should not be truncated, got: %s", out)

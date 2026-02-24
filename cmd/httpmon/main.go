@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/config"
@@ -27,6 +28,15 @@ import (
 
 var version = "dev"
 
+// stringSlice implements flag.Value for repeatable string flags.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 func main() {
 	flag.Int("port", 8080, "proxy listen port")
 	dataDir := flag.String("data-dir", defaultDataDir(), "data directory for CA certs")
@@ -40,6 +50,8 @@ func main() {
 	flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
 	flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
 	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
+	var protoPaths stringSlice
+	flag.Var(&protoPaths, "proto-path", "path to .proto file or directory (repeatable)")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,6 +64,11 @@ func main() {
 		fatal("config: %v", cfgErr)
 	}
 	config.ApplyFlags(cfg, flag.Visit)
+
+	// Merge proto paths: config first, CLI appended.
+	if len(protoPaths) > 0 {
+		cfg.ProtoPaths = append(cfg.ProtoPaths, protoPaths...)
+	}
 
 	// --mcp-addr implies --mcp.
 	flag.Visit(func(f *flag.Flag) {
@@ -146,6 +163,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), cfg.MCPToken)
 	}
 
+	// Build body decoder registry for protobuf/gRPC decoding.
+	// Even without .proto files, raw wire-format decoding is available.
+	protoDec := &bodydecoder.RawProtobufDecoder{}
+	if len(cfg.ProtoPaths) > 0 {
+		protoReg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths)
+		for _, e := range protoErrs {
+			fmt.Fprintf(os.Stderr, "proto: %v\n", e)
+		}
+		protoDec.ProtoReg = protoReg
+	}
+	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
+	decoderReg := bodydecoder.NewRegistry(grpcDec, protoDec)
+
 	tuiCfg := tui.AppConfig{
 		Store:       s,
 		Proxy:       p,
@@ -154,6 +184,7 @@ func main() {
 		Throttle:    p,
 		Breakpoints: bpCtrl,
 		DataDir:     *dataDir,
+		BodyDecoder: decoderReg,
 	}
 	if mcpSrv != nil {
 		tuiCfg.MCP = mcpSrv
