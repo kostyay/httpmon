@@ -27,13 +27,7 @@ type RawProtobufDecoder struct {
 }
 
 func (d *RawProtobufDecoder) CanDecode(contentType string) bool {
-	ct := stripParams(contentType)
-	for _, t := range protobufContentTypes {
-		if ct == t {
-			return true
-		}
-	}
-	return false
+	return matchesContentType(contentType, protobufContentTypes)
 }
 
 func (d *RawProtobufDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
@@ -183,6 +177,18 @@ func stripParams(ct string) string {
 		ct = ct[:i]
 	}
 	return strings.TrimSpace(strings.ToLower(ct))
+}
+
+// matchesContentType reports whether contentType (after stripping params)
+// matches any of the given MIME types.
+func matchesContentType(contentType string, types []string) bool {
+	ct := stripParams(contentType)
+	for _, t := range types {
+		if ct == t {
+			return true
+		}
+	}
+	return false
 }
 
 // orderedFields preserves field insertion order for JSON output.
