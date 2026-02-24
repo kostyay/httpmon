@@ -27,7 +27,7 @@ release: lint test security
 	  if [ -z "$$LATEST" ]; then TAG=v0.1.0; \
 	  else V=$${LATEST#v}; P=$${V##*.}; TAG=v$${V%.*}.$$((P+1)); fi; \
 	fi && \
-	printf "Release $$TAG? [y/N] " && read ans && [ "$$ans" = y ] && \
+	if [ "$(CONFIRM)" = "y" ]; then ans=y; else printf "Release $$TAG? [y/N] " && read ans; fi && [ "$$ans" = y ] && \
 	git tag "$$TAG" && git push origin "$$TAG" && \
 	GITHUB_TOKEN=$$(gh auth token) goreleaser release --clean
 
