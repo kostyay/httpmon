@@ -29,6 +29,7 @@ type Config struct {
 	ListMode       string   `json:"list_mode"`
 	TreeGroupBy    string   `json:"tree_group_by"`
 	ProtoPaths     []string `json:"proto_paths,omitempty"`
+	ProtoIncludes  []string `json:"proto_includes,omitempty"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

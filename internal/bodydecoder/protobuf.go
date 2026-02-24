@@ -30,6 +30,17 @@ func (d *RawProtobufDecoder) CanDecode(contentType string) bool {
 	return matchesContentType(contentType, protobufContentTypes)
 }
 
+func (d *RawProtobufDecoder) CanEncode(contentType string) bool {
+	return d.CanDecode(contentType)
+}
+
+func (d *RawProtobufDecoder) Encode(jsonBody []byte, _ string, meta DecoderMetadata) ([]byte, error) {
+	if d.ProtoReg == nil || !d.ProtoReg.HasMethods() {
+		return nil, fmt.Errorf("proto registry has no methods: %w", ErrNoEncoder)
+	}
+	return d.ProtoReg.EncodeNamed(jsonBody, meta.RequestPath, meta.IsRequest)
+}
+
 func (d *RawProtobufDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
 	// Try named decode if proto registry is available and we have a gRPC path.
 	if d.ProtoReg != nil && d.ProtoReg.HasMethods() && meta.RequestPath != "" {

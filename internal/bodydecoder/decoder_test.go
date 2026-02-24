@@ -116,3 +116,91 @@ func (c *capturingDecoder) Decode(_ []byte, meta DecoderMetadata) (string, strin
 	}
 	return "", "", nil
 }
+
+// --- Encoder tests ---
+
+// stubEncoder is a Decoder+Encoder for testing Registry.Encode().
+type stubEncoder struct {
+	stubDecoder
+	encodeMatch string
+	encoded     []byte
+	encodeErr   error
+}
+
+func (s *stubEncoder) CanEncode(contentType string) bool {
+	return contentType == s.encodeMatch
+}
+
+func (s *stubEncoder) Encode(_ []byte, _ string, _ DecoderMetadata) ([]byte, error) {
+	return s.encoded, s.encodeErr
+}
+
+func TestRegistryEncode_NoMatch_ReturnsErrNoEncoder(t *testing.T) {
+	// decoder-only stub — does not implement Encoder
+	dec := &stubDecoder{match: "application/protobuf"}
+	reg := NewRegistry(dec)
+
+	_, err := reg.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{})
+	if !errors.Is(err, ErrNoEncoder) {
+		t.Fatalf("expected ErrNoEncoder, got %v", err)
+	}
+}
+
+func TestRegistryEncode_Empty_ReturnsErrNoEncoder(t *testing.T) {
+	reg := NewRegistry()
+	_, err := reg.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{})
+	if !errors.Is(err, ErrNoEncoder) {
+		t.Fatalf("expected ErrNoEncoder, got %v", err)
+	}
+}
+
+func TestRegistryEncode_DispatchesToEncoder(t *testing.T) {
+	enc := &stubEncoder{
+		stubDecoder: stubDecoder{match: "application/protobuf"},
+		encodeMatch: "application/protobuf",
+		encoded:     []byte("wire-bytes"),
+	}
+	reg := NewRegistry(enc)
+
+	got, err := reg.Encode([]byte(`{"1":"hello"}`), "application/protobuf", DecoderMetadata{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got) != "wire-bytes" {
+		t.Errorf("expected wire-bytes, got %q", got)
+	}
+}
+
+func TestRegistryEncode_SkipsDecoderOnlyStubs(t *testing.T) {
+	// First: decoder-only (no Encoder). Second: decoder+encoder.
+	decOnly := &stubDecoder{match: "application/protobuf"}
+	enc := &stubEncoder{
+		stubDecoder: stubDecoder{match: "application/protobuf"},
+		encodeMatch: "application/protobuf",
+		encoded:     []byte("from-encoder"),
+	}
+	reg := NewRegistry(decOnly, enc)
+
+	got, err := reg.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got) != "from-encoder" {
+		t.Errorf("expected from-encoder, got %q", got)
+	}
+}
+
+func TestRegistryEncode_PropagatesError(t *testing.T) {
+	encErr := errors.New("encode failed")
+	enc := &stubEncoder{
+		stubDecoder: stubDecoder{match: "application/protobuf"},
+		encodeMatch: "application/protobuf",
+		encodeErr:   encErr,
+	}
+	reg := NewRegistry(enc)
+
+	_, err := reg.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{})
+	if !errors.Is(err, encErr) {
+		t.Fatalf("expected encode error, got %v", err)
+	}
+}

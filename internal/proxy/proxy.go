@@ -11,6 +11,7 @@ import (
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/breakpoint"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/hostfilter"
@@ -55,6 +56,10 @@ type Proxy struct {
 
 	// Resolver is optional; resolves process info for connections.
 	Resolver *procinfo.Resolver
+
+	// DecoderRegistry is optional; enables transparent protobuf/gRPC body
+	// decode/encode around script execution.
+	DecoderRegistry *bodydecoder.Registry
 }
 
 // New creates a Proxy that writes captured flows into the given store.
@@ -106,6 +111,7 @@ func (p *Proxy) Init(addr string) error {
 		Store:           p.store,
 		Engine:          p.ScriptEngine,
 		Resolver:        p.Resolver,
+		DecoderRegistry: p.DecoderRegistry,
 		ThrottleBPS:     p.ThrottleBPS,
 		ThrottleLatency: p.ThrottleLatency,
 	})
