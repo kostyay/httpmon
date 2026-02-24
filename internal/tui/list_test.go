@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/kostyay/httpmon/internal/bodydecoder"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/store"
 )
 
