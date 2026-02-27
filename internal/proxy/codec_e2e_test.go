@@ -55,7 +55,7 @@ func newTestDecoderRegistry(t *testing.T) *bodydecoder.Registry {
 }
 
 // setupGRPCProxy creates a gRPC-Web server + proxy with script engine and decoder.
-func setupGRPCProxy(t *testing.T, scriptSource string) (*httptest.Server, *greeterClient, *store.RingBuffer, int) {
+func setupGRPCProxy(t *testing.T, scriptSource string) (*greeterClient, *store.RingBuffer) {
 	t.Helper()
 
 	mux := http.NewServeMux()
@@ -72,7 +72,7 @@ func setupGRPCProxy(t *testing.T, scriptSource string) (*httptest.Server, *greet
 	reg := newTestDecoderRegistry(t)
 	_, s, port := setupProxy(t, withScriptEngine(engine), withDecoderRegistry(reg))
 
-	return ts, newGreeterClient(t, ts.URL, port), s, port
+	return newGreeterClient(t, ts.URL, port), s
 }
 
 type greeterClient struct {
@@ -104,7 +104,7 @@ func (g *greeterClient) sayHello(t *testing.T, name string, age int32) *testpb.H
 // TestCodecE2E_ScriptModifiesResponse verifies that a script can modify a
 // protobuf response body (transparently decoded to JSON, then re-encoded).
 func TestCodecE2E_ScriptModifiesResponse(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onResponse(ctx) {
 			if (ctx.body && ctx.body.indexOf('"message"') !== -1) {
 				var parsed = JSON.parse(ctx.body);
@@ -122,7 +122,7 @@ func TestCodecE2E_ScriptModifiesResponse(t *testing.T) {
 // TestCodecE2E_ScriptModifiesRequest verifies that a script can modify a
 // protobuf request body before it reaches the upstream server.
 func TestCodecE2E_ScriptModifiesRequest(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onRequest(ctx) {
 			if (ctx.body && ctx.body.indexOf('"name"') !== -1) {
 				var parsed = JSON.parse(ctx.body);
@@ -132,8 +132,7 @@ func TestCodecE2E_ScriptModifiesRequest(t *testing.T) {
 		}
 	`)
 
-	// The script changes the name to "ScriptInjected", so the upstream
-	// echoes it back in the response message.
+	// Script changes name to "ScriptInjected"; upstream echoes it back.
 	reply := gc.sayHello(t, "Original", 25)
 	assert.Contains(t, reply.Message, "ScriptInjected")
 	assert.NotContains(t, reply.Message, "Original")
@@ -142,7 +141,7 @@ func TestCodecE2E_ScriptModifiesRequest(t *testing.T) {
 // TestCodecE2E_NoScript_PassthroughUnchanged verifies that without scripts,
 // gRPC-Web traffic passes through unmodified.
 func TestCodecE2E_NoScript_PassthroughUnchanged(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, "")
+	gc, _ := setupGRPCProxy(t, "")
 
 	reply := gc.sayHello(t, "Passthrough", 99)
 	assert.Contains(t, reply.Message, "Passthrough")
@@ -153,10 +152,9 @@ func TestCodecE2E_NoScript_PassthroughUnchanged(t *testing.T) {
 // TestCodecE2E_ScriptDoesNotModify_OriginalBytesPreserved verifies that when
 // a script reads but doesn't modify the body, the original wire bytes are forwarded.
 func TestCodecE2E_ScriptDoesNotModify_OriginalBytesPreserved(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onResponse(ctx) {
-			// Read but don't modify.
-			var x = ctx.body;
+			var x = ctx.body; // read but don't modify
 		}
 	`)
 
@@ -217,7 +215,7 @@ func TestCodecE2E_RespondWithOnGRPCWeb(t *testing.T) {
 // TestCodecE2E_ModifyBothRequestAndResponse verifies that scripts can modify
 // both the request and response in the same flow.
 func TestCodecE2E_ModifyBothRequestAndResponse(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onRequest(ctx) {
 			if (ctx.body && ctx.body.indexOf('"name"') !== -1) {
 				var parsed = JSON.parse(ctx.body);
@@ -241,7 +239,7 @@ func TestCodecE2E_ModifyBothRequestAndResponse(t *testing.T) {
 
 // TestCodecE2E_AddField verifies that a script can add a new field to the request.
 func TestCodecE2E_AddField(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onRequest(ctx) {
 			if (ctx.body) {
 				var parsed = JSON.parse(ctx.body);
@@ -251,7 +249,7 @@ func TestCodecE2E_AddField(t *testing.T) {
 		}
 	`)
 
-	// Client sends age=0, script overrides to 99.
+	// Client sends age=0; script overrides to 99.
 	reply := gc.sayHello(t, "Alice", 0)
 	assert.Contains(t, reply.Message, "99")
 }
@@ -259,7 +257,7 @@ func TestCodecE2E_AddField(t *testing.T) {
 // TestCodecE2E_RemoveField verifies that deleting a field from the request JSON
 // results in the proto default value (0 for int32).
 func TestCodecE2E_RemoveField(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onRequest(ctx) {
 			if (ctx.body) {
 				var parsed = JSON.parse(ctx.body);
@@ -269,7 +267,7 @@ func TestCodecE2E_RemoveField(t *testing.T) {
 		}
 	`)
 
-	// Client sends age=55, script deletes it → upstream sees default 0.
+	// Client sends age=55; script deletes it -> upstream sees default 0.
 	reply := gc.sayHello(t, "Bob", 55)
 	assert.Contains(t, reply.Message, "0 years old")
 	assert.NotContains(t, reply.Message, "55")
@@ -278,7 +276,7 @@ func TestCodecE2E_RemoveField(t *testing.T) {
 // TestCodecE2E_StoreCapturesReencodedBody verifies that after response modification,
 // the store's FlowData.ResponseBody contains re-encoded gRPC-Web wire bytes.
 func TestCodecE2E_StoreCapturesReencodedBody(t *testing.T) {
-	_, gc, s, _ := setupGRPCProxy(t, `
+	gc, s := setupGRPCProxy(t, `
 		function onResponse(ctx) {
 			if (ctx.body && ctx.body.indexOf('"message"') !== -1) {
 				var parsed = JSON.parse(ctx.body);
@@ -294,18 +292,16 @@ func TestCodecE2E_StoreCapturesReencodedBody(t *testing.T) {
 	_, data := findFlow(t, s, "/testpkg.Greeter/SayHello")
 	require.NotNil(t, data)
 
-	// The stored body should be gRPC-Web wire bytes (starts with 0x00 frame flag),
-	// not raw JSON.
+	// Stored body must be gRPC-Web wire bytes, not raw JSON.
 	require.True(t, len(data.ResponseBody) > 5, "response body too short")
 	assert.Equal(t, byte(0x00), data.ResponseBody[0], "expected gRPC data frame flag")
-	// Verify it's NOT raw JSON text.
 	assert.NotContains(t, string(data.ResponseBody), `"message"`)
 }
 
 // TestCodecE2E_ScriptSetsEmptyBody verifies that setting the body to an empty JSON
 // object produces a valid (empty) proto message without errors.
 func TestCodecE2E_ScriptSetsEmptyBody(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onResponse(ctx) {
 			ctx.body = "{}";
 		}
@@ -320,7 +316,7 @@ func TestCodecE2E_ScriptSetsEmptyBody(t *testing.T) {
 // TestCodecE2E_UndefinedFieldIgnored verifies that adding a field not in the proto
 // schema is silently ignored during re-encoding, and the response is still valid.
 func TestCodecE2E_UndefinedFieldIgnored(t *testing.T) {
-	_, gc, _, _ := setupGRPCProxy(t, `
+	gc, _ := setupGRPCProxy(t, `
 		function onResponse(ctx) {
 			if (ctx.body) {
 				var parsed = JSON.parse(ctx.body);
