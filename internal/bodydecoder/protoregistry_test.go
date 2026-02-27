@@ -29,7 +29,11 @@ func TestLoadProtoFiles_SingleFile(t *testing.T) {
 }
 
 func TestLoadProtoFiles_Directory(t *testing.T) {
-	reg, errs := LoadProtoFiles([]string{"testdata"})
+	// Use importtest/src as the dir (contains importing.proto), with includes.
+	reg, errs := LoadProtoFiles(
+		[]string{"testdata/importtest/src"},
+		"testdata/importtest/includes",
+	)
 	if len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -56,6 +60,36 @@ func TestLoadProtoFiles_EmptyPaths(t *testing.T) {
 	}
 	if reg.HasMethods() {
 		t.Error("expected no methods")
+	}
+}
+
+func TestLoadProtoFiles_WithIncludeDirs(t *testing.T) {
+	// importing.proto imports shared.proto which lives in a separate dir.
+	// Without the include dir, compilation fails.
+	reg, errs := LoadProtoFiles(
+		[]string{"testdata/importtest/src/importing.proto"},
+		"testdata/importtest/includes",
+	)
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if !reg.HasMethods() {
+		t.Fatal("expected methods from importing.proto")
+	}
+	m, ok := reg.LookupMethod("/importpkg.TimeService/GetTime")
+	if !ok {
+		t.Fatal("GetTime not found")
+	}
+	if string(m.Output().FullName()) != "importpkg.TimeReply" {
+		t.Errorf("output = %s", m.Output().FullName())
+	}
+}
+
+func TestLoadProtoFiles_WithoutIncludeDirs_Fails(t *testing.T) {
+	// Without include dir, shared.proto can't be resolved.
+	_, errs := LoadProtoFiles([]string{"testdata/importtest/src/importing.proto"})
+	if len(errs) == 0 {
+		t.Error("expected compile error without include dir")
 	}
 }
 
@@ -196,6 +230,110 @@ func TestRawProtobufDecoder_NamedDecode(t *testing.T) {
 	// Named decode uses field names.
 	if !strings.Contains(decoded, `"name"`) {
 		t.Errorf("expected named field: %s", decoded)
+	}
+}
+
+func TestEncodeNamed_Request(t *testing.T) {
+	reg, errs := LoadProtoFiles([]string{"testdata/test.proto"})
+	if len(errs) > 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+
+	jsonBody := []byte(`{"name": "Alice", "age": 30}`)
+	wire, err := reg.EncodeNamed(jsonBody, "/testpkg.Greeter/SayHello", true)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	// Round-trip: decode back and verify.
+	decoded, err := reg.DecodeNamed(wire, "/testpkg.Greeter/SayHello", true)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if got["name"] != "Alice" {
+		t.Errorf("name = %v", got["name"])
+	}
+	if got["age"] != float64(30) {
+		t.Errorf("age = %v", got["age"])
+	}
+}
+
+func TestEncodeNamed_Response(t *testing.T) {
+	reg, errs := LoadProtoFiles([]string{"testdata/test.proto"})
+	if len(errs) > 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+
+	jsonBody := []byte(`{"message": "Hi!", "success": true}`)
+	wire, err := reg.EncodeNamed(jsonBody, "/testpkg.Greeter/SayHello", false)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	decoded, err := reg.DecodeNamed(wire, "/testpkg.Greeter/SayHello", false)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if got["message"] != "Hi!" {
+		t.Errorf("message = %v", got["message"])
+	}
+	if got["success"] != true {
+		t.Errorf("success = %v", got["success"])
+	}
+}
+
+func TestEncodeNamed_UnknownMethod(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	_, err := reg.EncodeNamed([]byte(`{}`), "/unknown.Svc/Method", true)
+	if err == nil {
+		t.Fatal("expected error for unknown method")
+	}
+}
+
+func TestEncodeNamed_RoundTrip(t *testing.T) {
+	reg, errs := LoadProtoFiles([]string{"testdata/test.proto"})
+	if len(errs) > 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+
+	// Start with wire bytes, decode, re-encode, decode again — should match.
+	original := buildProto(
+		bytesField(1, []byte("Bob")),
+		varintField(2, 25),
+	)
+	decoded, err := reg.DecodeNamed(original, "/testpkg.Greeter/SayHello", true)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	reEncoded, err := reg.EncodeNamed([]byte(decoded), "/testpkg.Greeter/SayHello", true)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	decoded2, err := reg.DecodeNamed(reEncoded, "/testpkg.Greeter/SayHello", true)
+	if err != nil {
+		t.Fatalf("decode2: %v", err)
+	}
+
+	if decoded != decoded2 {
+		t.Errorf("round-trip mismatch:\n  first:  %s\n  second: %s", decoded, decoded2)
+	}
+}
+
+func TestEncodeNamed_MalformedJSON(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	_, err := reg.EncodeNamed([]byte(`{not json`), "/testpkg.Greeter/SayHello", true)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON")
 	}
 }
 

@@ -21,14 +21,21 @@ type ProtoRegistry struct {
 	methods map[string]protoreflect.MethodDescriptor
 }
 
+func emptyRegistry() *ProtoRegistry {
+	return &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}
+}
+
 // LoadProtoFiles compiles .proto files from the given paths into a registry.
 // Paths may be files or directories (recursively globbed for *.proto).
+// Extra includeDirs are added to the import search path (like protoc -I).
 // Returns the registry and any non-fatal errors (bad files are skipped).
-func LoadProtoFiles(paths []string) (*ProtoRegistry, []error) {
+func LoadProtoFiles(paths []string, includeDirs ...string) (*ProtoRegistry, []error) {
 	protoFiles, importDirs, errs := resolveProtoPaths(paths)
 	if len(protoFiles) == 0 {
-		return &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}, errs
+		return emptyRegistry(), errs
 	}
+
+	importDirs = append(importDirs, includeDirs...)
 
 	compiler := protocompile.Compiler{
 		Resolver: &protocompile.SourceResolver{
@@ -39,10 +46,10 @@ func LoadProtoFiles(paths []string) (*ProtoRegistry, []error) {
 	compiled, err := compiler.Compile(context.Background(), protoFiles...)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("proto compile: %w", err))
-		return &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}, errs
+		return emptyRegistry(), errs
 	}
 
-	reg := &ProtoRegistry{methods: map[string]protoreflect.MethodDescriptor{}}
+	reg := emptyRegistry()
 	for _, f := range compiled {
 		services := f.Services()
 		for i := 0; i < services.Len(); i++ {
@@ -76,21 +83,13 @@ func (r *ProtoRegistry) LookupMethod(requestPath string) (protoreflect.MethodDes
 // DecodeNamed attempts to decode body as a named protobuf message.
 // isRequest selects input vs output message type.
 func (r *ProtoRegistry) DecodeNamed(body []byte, requestPath string, isRequest bool) (string, error) {
-	method, ok := r.LookupMethod(requestPath)
-	if !ok {
-		return "", fmt.Errorf("no method descriptor for path %q", requestPath)
+	msg, err := r.newMessage(requestPath, isRequest)
+	if err != nil {
+		return "", err
 	}
 
-	var msgDesc protoreflect.MessageDescriptor
-	if isRequest {
-		msgDesc = method.Input()
-	} else {
-		msgDesc = method.Output()
-	}
-
-	msg := dynamicpb.NewMessage(msgDesc)
 	if err := proto.Unmarshal(body, msg); err != nil {
-		return "", fmt.Errorf("unmarshal %s: %w", msgDesc.FullName(), err)
+		return "", fmt.Errorf("unmarshal %s: %w", msg.Descriptor().FullName(), err)
 	}
 
 	opts := protojson.MarshalOptions{
@@ -103,6 +102,40 @@ func (r *ProtoRegistry) DecodeNamed(body []byte, requestPath string, isRequest b
 		return "", fmt.Errorf("marshal json: %w", err)
 	}
 	return string(out), nil
+}
+
+// EncodeNamed encodes a JSON body back into protobuf wire format using the
+// named method descriptor. isRequest selects input vs output message type.
+func (r *ProtoRegistry) EncodeNamed(jsonBody []byte, requestPath string, isRequest bool) ([]byte, error) {
+	msg, err := r.newMessage(requestPath, isRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := protojson.Unmarshal(jsonBody, msg); err != nil {
+		return nil, fmt.Errorf("unmarshal json into %s: %w", msg.Descriptor().FullName(), err)
+	}
+
+	wire, err := proto.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal proto: %w", err)
+	}
+	return wire, nil
+}
+
+// newMessage resolves the method descriptor for requestPath and returns a new
+// dynamic message for either the request (input) or response (output) type.
+func (r *ProtoRegistry) newMessage(requestPath string, isRequest bool) (*dynamicpb.Message, error) {
+	method, ok := r.LookupMethod(requestPath)
+	if !ok {
+		return nil, fmt.Errorf("no method descriptor for path %q", requestPath)
+	}
+
+	msgDesc := method.Output()
+	if isRequest {
+		msgDesc = method.Input()
+	}
+	return dynamicpb.NewMessage(msgDesc), nil
 }
 
 // HasMethods returns true if any service methods were loaded.

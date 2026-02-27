@@ -11,6 +11,7 @@ import (
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/throttle"
@@ -289,6 +290,128 @@ func TestResponseheadersNilResponse(t *testing.T) {
 		}
 	}
 	t.Error("flow not found in store")
+}
+
+// --- runScriptsWithCodec tests ---
+
+// fakeEncoder implements both bodydecoder.Decoder and bodydecoder.Encoder.
+type fakeEncoder struct {
+	canMatch    bool
+	decoded     string
+	encoded     []byte
+	decodeErr   error
+	encodeErr   error
+	encodeCalls int
+}
+
+func (f *fakeEncoder) CanDecode(string) bool { return f.canMatch }
+func (f *fakeEncoder) Decode(_ []byte, _ bodydecoder.DecoderMetadata) (string, string, error) {
+	return f.decoded, "application/json", f.decodeErr
+}
+func (f *fakeEncoder) CanEncode(string) bool { return f.canMatch }
+func (f *fakeEncoder) Encode(_ []byte, _ string, _ bodydecoder.DecoderMetadata) ([]byte, error) {
+	f.encodeCalls++
+	return f.encoded, f.encodeErr
+}
+
+func TestRunScriptsWithCodec_DecodesForScript(t *testing.T) {
+	enc := &fakeEncoder{canMatch: true, decoded: `{"name":"Alice"}`, encoded: []byte("wire")}
+	reg := bodydecoder.NewRegistry(enc)
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s, DecoderRegistry: reg})
+
+	meta := bodydecoder.DecoderMetadata{RequestPath: "/pkg.Svc/Method", IsRequest: true}
+	result := ic.runScriptsWithCodec([]byte("proto-wire"), "application/protobuf", meta,
+		func(body []byte) ([]byte, bool) {
+			// Script sees decoded JSON.
+			if string(body) != `{"name":"Alice"}` {
+				t.Errorf("script saw %q, want decoded JSON", body)
+			}
+			return []byte(`{"name":"Bob"}`), true
+		},
+	)
+	if string(result) != "wire" {
+		t.Errorf("result = %q, want re-encoded wire", result)
+	}
+	if enc.encodeCalls != 1 {
+		t.Errorf("encode called %d times, want 1", enc.encodeCalls)
+	}
+}
+
+func TestRunScriptsWithCodec_UnchangedBody(t *testing.T) {
+	enc := &fakeEncoder{canMatch: true, decoded: `{"name":"Alice"}`, encoded: []byte("wire")}
+	reg := bodydecoder.NewRegistry(enc)
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s, DecoderRegistry: reg})
+
+	original := []byte("proto-wire")
+	meta := bodydecoder.DecoderMetadata{}
+	result := ic.runScriptsWithCodec(original, "application/protobuf", meta,
+		func(body []byte) ([]byte, bool) {
+			return body, false // unchanged
+		},
+	)
+	// Should return original, not re-encode.
+	if string(result) != "proto-wire" {
+		t.Errorf("result = %q, want original", result)
+	}
+	if enc.encodeCalls != 0 {
+		t.Errorf("encode called %d times, want 0 (body unchanged)", enc.encodeCalls)
+	}
+}
+
+func TestRunScriptsWithCodec_DecodeFails_PassesRaw(t *testing.T) {
+	enc := &fakeEncoder{canMatch: true, decodeErr: bodydecoder.ErrNoDecoder}
+	reg := bodydecoder.NewRegistry(enc)
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s, DecoderRegistry: reg})
+
+	meta := bodydecoder.DecoderMetadata{}
+	result := ic.runScriptsWithCodec([]byte("raw-body"), "text/plain", meta,
+		func(body []byte) ([]byte, bool) {
+			if string(body) != "raw-body" {
+				t.Errorf("script saw %q, want raw", body)
+			}
+			return []byte("modified-raw"), true
+		},
+	)
+	if string(result) != "modified-raw" {
+		t.Errorf("result = %q, want modified-raw", result)
+	}
+}
+
+func TestRunScriptsWithCodec_EncodeFails_FallsBack(t *testing.T) {
+	enc := &fakeEncoder{canMatch: true, decoded: `{"name":"Alice"}`, encodeErr: bodydecoder.ErrNoEncoder}
+	reg := bodydecoder.NewRegistry(enc)
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s, DecoderRegistry: reg})
+
+	original := []byte("proto-wire")
+	meta := bodydecoder.DecoderMetadata{}
+	result := ic.runScriptsWithCodec(original, "application/protobuf", meta,
+		func(body []byte) ([]byte, bool) {
+			return []byte(`{"name":"Bob"}`), true
+		},
+	)
+	// Encode failed → fall back to original.
+	if string(result) != "proto-wire" {
+		t.Errorf("result = %q, want original (encode fallback)", result)
+	}
+}
+
+func TestRunScriptsWithCodec_NilRegistry(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s}) // no registry
+
+	meta := bodydecoder.DecoderMetadata{}
+	result := ic.runScriptsWithCodec([]byte("raw"), "application/protobuf", meta,
+		func(body []byte) ([]byte, bool) {
+			return []byte("modified"), true
+		},
+	)
+	if string(result) != "modified" {
+		t.Errorf("result = %q, want modified (nil registry passthrough)", result)
+	}
 }
 
 func TestSetThrottleRuntimeChange(t *testing.T) {

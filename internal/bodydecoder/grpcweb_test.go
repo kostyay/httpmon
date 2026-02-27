@@ -163,3 +163,80 @@ func TestGRPCWebDecoder_TruncatedHeader(t *testing.T) {
 		t.Error("expected error for truncated header")
 	}
 }
+
+func TestGRPCWebDecoder_CanEncode(t *testing.T) {
+	d := &GRPCWebDecoder{}
+	if !d.CanEncode("application/grpc-web") {
+		t.Error("should match grpc-web")
+	}
+	if d.CanEncode("application/protobuf") {
+		t.Error("should not match protobuf")
+	}
+}
+
+func TestGRPCWebDecoder_Encode(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ProtoReg: reg}}
+
+	jsonBody := []byte(`{"name": "Alice", "age": 30}`)
+	wire, err := d.Encode(jsonBody, "application/grpc-web", DecoderMetadata{
+		RequestPath: "/testpkg.Greeter/SayHello",
+		IsRequest:   true,
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	// Verify frame structure: flag(1) + length(4) + payload
+	if len(wire) < frameHeaderLen {
+		t.Fatalf("wire too short: %d", len(wire))
+	}
+	if wire[0] != flagData {
+		t.Errorf("flag = 0x%02x, want 0x00", wire[0])
+	}
+	payloadLen := binary.BigEndian.Uint32(wire[1:frameHeaderLen])
+	if int(payloadLen) != len(wire)-frameHeaderLen {
+		t.Errorf("length field = %d, actual payload = %d", payloadLen, len(wire)-frameHeaderLen)
+	}
+}
+
+func TestGRPCWebDecoder_EncodeRoundTrip(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ProtoReg: reg}}
+	meta := DecoderMetadata{RequestPath: "/testpkg.Greeter/SayHello", IsRequest: true}
+
+	jsonBody := []byte(`{"name": "Bob", "age": 25}`)
+	wire, err := d.Encode(jsonBody, "application/grpc-web", meta)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	// Decode the encoded output.
+	decoded, _, err := d.Decode(wire, meta)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if got["name"] != "Bob" {
+		t.Errorf("name = %v", got["name"])
+	}
+	if got["age"] != float64(25) {
+		t.Errorf("age = %v", got["age"])
+	}
+}
+
+func TestGRPCWebDecoder_Encode_PropagatesError(t *testing.T) {
+	// No proto registry → encode should fail.
+	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{}}
+	_, err := d.Encode([]byte(`{}`), "application/grpc-web", DecoderMetadata{
+		RequestPath: "/testpkg.Greeter/SayHello",
+		IsRequest:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error without proto registry")
+	}
+}

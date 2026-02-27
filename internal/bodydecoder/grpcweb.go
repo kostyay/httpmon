@@ -3,6 +3,7 @@ package bodydecoder
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -20,6 +21,29 @@ type GRPCWebDecoder struct {
 
 func (d *GRPCWebDecoder) CanDecode(contentType string) bool {
 	return matchesContentType(contentType, grpcWebContentTypes)
+}
+
+func (d *GRPCWebDecoder) CanEncode(contentType string) bool {
+	return d.CanDecode(contentType)
+}
+
+func (d *GRPCWebDecoder) Encode(jsonBody []byte, contentType string, meta DecoderMetadata) ([]byte, error) {
+	payload, err := d.Proto.Encode(jsonBody, contentType, meta)
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > math.MaxUint32 {
+		return nil, fmt.Errorf("payload too large for gRPC-Web frame: %d bytes", len(payload))
+	}
+	// Wrap in a single gRPC-Web data frame: flag(1) + length(4) + payload.
+	frame := make([]byte, frameHeaderLen+len(payload))
+	frame[0] = flagData
+	binary.BigEndian.PutUint32(frame[1:frameHeaderLen], uint32(len(payload))) // #nosec G115 -- guarded above
+	copy(frame[frameHeaderLen:], payload)
+
+	// Preserve non-data frames (trailers) from the original body.
+	frame = append(frame, extractNonDataFrames(meta.OriginalBody)...)
+	return frame, nil
 }
 
 func (d *GRPCWebDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
@@ -49,6 +73,26 @@ const (
 	flagCompressed = 0x01
 	flagTrailers   = 0x80
 )
+
+// extractNonDataFrames returns the raw bytes of all non-data frames (trailers,
+// compressed, etc.) from a gRPC-Web body. Used to preserve trailers during re-encode.
+func extractNonDataFrames(body []byte) []byte {
+	var out []byte
+	remaining := body
+	for len(remaining) >= frameHeaderLen {
+		flag := remaining[0]
+		length := binary.BigEndian.Uint32(remaining[1:frameHeaderLen])
+		end := frameHeaderLen + int(length)
+		if end > len(remaining) {
+			end = len(remaining) // truncated frame — preserve whatever bytes exist
+		}
+		if flag != flagData {
+			out = append(out, remaining[:end]...)
+		}
+		remaining = remaining[end:]
+	}
+	return out
+}
 
 // extractDataFrames parses gRPC-Web framing and returns the concatenated
 // data frame payloads. Compressed and trailer frames are skipped with notes.
