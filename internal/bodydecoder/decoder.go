@@ -10,8 +10,9 @@ var ErrNoDecoder = errors.New("no decoder matched content type")
 // DecoderMetadata carries per-request context that decoders may use
 // for message type resolution (e.g. gRPC service/method from path).
 type DecoderMetadata struct {
-	RequestPath string // e.g. /api/v1/package.Service/Method
-	IsRequest   bool   // true = request body, false = response body
+	RequestPath  string // e.g. /api/v1/package.Service/Method
+	IsRequest    bool   // true = request body, false = response body
+	OriginalBody []byte // set during re-encode so encoders can preserve non-data frames
 }
 
 // Decoder decodes a body from wire format into a human-readable string.
@@ -45,4 +46,15 @@ func (r *Registry) Decode(body []byte, contentType string, meta DecoderMetadata)
 		}
 	}
 	return "", "", ErrNoDecoder
+}
+
+// Encode finds the first decoder that also implements Encoder for the given
+// content type and delegates to it. Returns ErrNoEncoder if none match.
+func (r *Registry) Encode(jsonBody []byte, contentType string, meta DecoderMetadata) ([]byte, error) {
+	for _, d := range r.decoders {
+		if enc, ok := d.(Encoder); ok && enc.CanEncode(contentType) {
+			return enc.Encode(jsonBody, contentType, meta)
+		}
+	}
+	return nil, ErrNoEncoder
 }

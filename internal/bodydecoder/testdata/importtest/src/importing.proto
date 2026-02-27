@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package importpkg;
+
+import "shared.proto";
+
+service TimeService {
+  rpc GetTime (TimeRequest) returns (TimeReply) {}
+}
+
+message TimeRequest {
+  string zone = 1;
+}
+
+message TimeReply {
+  shared.Timestamp ts = 1;
+}

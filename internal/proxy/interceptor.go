@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 
+	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/procinfo"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
@@ -21,9 +23,10 @@ import (
 // interceptor is a go-mitmproxy addon that captures flows into a RingBuffer.
 type interceptor struct {
 	mp.BaseAddon
-	store    *store.RingBuffer
-	engine   *scripting.Engine  // may be nil
-	resolver *procinfo.Resolver // may be nil
+	store      *store.RingBuffer
+	engine     *scripting.Engine     // may be nil
+	resolver   *procinfo.Resolver    // may be nil
+	decoderReg *bodydecoder.Registry // may be nil
 
 	mu              sync.RWMutex
 	throttleBPS     int64
@@ -34,6 +37,7 @@ type interceptorConfig struct {
 	Store           *store.RingBuffer
 	Engine          *scripting.Engine
 	Resolver        *procinfo.Resolver
+	DecoderRegistry *bodydecoder.Registry
 	ThrottleBPS     int64
 	ThrottleLatency time.Duration
 }
@@ -43,9 +47,44 @@ func newInterceptor(cfg interceptorConfig) *interceptor {
 		store:           cfg.Store,
 		engine:          cfg.Engine,
 		resolver:        cfg.Resolver,
+		decoderReg:      cfg.DecoderRegistry,
 		throttleBPS:     cfg.ThrottleBPS,
 		throttleLatency: cfg.ThrottleLatency,
 	}
+}
+
+// runScriptsWithCodec decodes a binary body (e.g. protobuf) into JSON before
+// the script callback, then re-encodes to wire format if the script modified it.
+// Falls back to original bytes on any encode error.
+func (i *interceptor) runScriptsWithCodec(
+	body []byte, contentType string, meta bodydecoder.DecoderMetadata,
+	run func(body []byte) (modified []byte, changed bool),
+) []byte {
+	// No registry, or content type not decodable — run scripts on raw bytes.
+	if i.decoderReg == nil {
+		result, _ := run(body)
+		return result
+	}
+	decoded, _, err := i.decoderReg.Decode(body, contentType, meta)
+	if err != nil {
+		result, _ := run(body)
+		return result
+	}
+
+	// Scripts see decoded JSON.
+	result, changed := run([]byte(decoded))
+	if !changed {
+		return body // unchanged — return original wire bytes
+	}
+
+	// Re-encode modified JSON back to wire format.
+	meta.OriginalBody = body
+	encoded, err := i.decoderReg.Encode(result, contentType, meta)
+	if err != nil {
+		log.Printf("codec: encode failed, using original body: %v", err)
+		return body
+	}
+	return encoded
 }
 
 // SetThrottle updates throttle settings at runtime (thread-safe).
@@ -122,14 +161,27 @@ func (i *interceptor) Request(f *mp.Flow) {
 	// Run scripts on request (before forwarding to upstream).
 	if i.engine != nil {
 		reqURL := f.Request.URL.String()
+		contentType := f.Request.Header.Get("Content-Type")
+		meta := bodydecoder.DecoderMetadata{
+			RequestPath: f.Request.URL.Path,
+			IsRequest:   true,
+		}
+
 		ctx := &scripting.RequestContext{
 			Method:  f.Request.Method,
 			URL:     reqURL,
 			Headers: f.Request.Header.Clone(),
-			Body:    f.Request.Body,
 			Meta:    store.FlowMeta{ID: id, Method: f.Request.Method, Host: f.Request.URL.Hostname()},
 		}
-		i.engine.RunOnRequest(ctx)
+
+		// Transparent codec: decode binary body → JSON for scripts, re-encode after.
+		ctx.Body = i.runScriptsWithCodec(f.Request.Body, contentType, meta,
+			func(scriptBody []byte) ([]byte, bool) {
+				ctx.Body = scriptBody
+				i.engine.RunOnRequest(ctx)
+				return ctx.Body, !bytes.Equal(scriptBody, ctx.Body)
+			},
+		)
 
 		if ctx.Responded {
 			i.buildSyntheticResponse(f, id, body, ctx.ResponseStatus,
@@ -213,13 +265,26 @@ func (i *interceptor) Response(f *mp.Flow) {
 	// Run scripts on response.
 	if i.engine != nil {
 		reqURL := f.Request.URL.String()
+		contentType := f.Response.Header.Get("Content-Type")
+		meta := bodydecoder.DecoderMetadata{
+			RequestPath: f.Request.URL.Path,
+			IsRequest:   false,
+		}
+
 		ctx := &scripting.ResponseContext{
 			Status:  f.Response.StatusCode,
 			Headers: f.Response.Header.Clone(),
-			Body:    respBody,
 			Meta:    store.FlowMeta{ID: id, Method: f.Request.Method, Host: f.Request.URL.Hostname()},
 		}
-		i.engine.RunOnResponse(ctx, reqURL)
+
+		// Transparent codec: decode binary body → JSON for scripts, re-encode after.
+		ctx.Body = i.runScriptsWithCodec(respBody, contentType, meta,
+			func(scriptBody []byte) ([]byte, bool) {
+				ctx.Body = scriptBody
+				i.engine.RunOnResponse(ctx, reqURL)
+				return ctx.Body, !bytes.Equal(scriptBody, ctx.Body)
+			},
+		)
 
 		if ctx.Responded {
 			f.Response.StatusCode = ctx.ResponseStatus

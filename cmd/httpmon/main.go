@@ -52,6 +52,8 @@ func main() {
 	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
 	var protoPaths stringSlice
 	flag.Var(&protoPaths, "proto-path", "path to .proto file or directory (repeatable)")
+	var protoIncludes stringSlice
+	flag.Var(&protoIncludes, "proto-include", "additional import search dir, like protoc -I (repeatable)")
 	flag.Parse()
 
 	if *showVersion {
@@ -68,6 +70,9 @@ func main() {
 	// Merge proto paths: config first, CLI appended.
 	if len(protoPaths) > 0 {
 		cfg.ProtoPaths = append(cfg.ProtoPaths, protoPaths...)
+	}
+	if len(protoIncludes) > 0 {
+		cfg.ProtoIncludes = append(cfg.ProtoIncludes, protoIncludes...)
 	}
 
 	// --mcp-addr implies --mcp.
@@ -120,6 +125,20 @@ func main() {
 		p.ThrottleLatency = *latencyFlag
 	}
 
+	// Build body decoder registry for protobuf/gRPC decoding.
+	// Must be set before Init() so the interceptor can use it.
+	protoDec := &bodydecoder.RawProtobufDecoder{}
+	if len(cfg.ProtoPaths) > 0 {
+		protoReg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths, cfg.ProtoIncludes...)
+		for _, e := range protoErrs {
+			fmt.Fprintf(os.Stderr, "proto: %v\n", e)
+		}
+		protoDec.ProtoReg = protoReg
+	}
+	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
+	decoderReg := bodydecoder.NewRegistry(grpcDec, protoDec)
+	p.DecoderRegistry = decoderReg
+
 	addr := fmt.Sprintf(":%d", cfg.ProxyPort)
 	if err := p.Init(addr); err != nil {
 		fatal("proxy init: %v", err)
@@ -162,19 +181,6 @@ func main() {
 		}
 		fmt.Fprintf(os.Stderr, "MCP server listening on %s (token: %s)\n", mcpSrv.Addr(), cfg.MCPToken)
 	}
-
-	// Build body decoder registry for protobuf/gRPC decoding.
-	// Even without .proto files, raw wire-format decoding is available.
-	protoDec := &bodydecoder.RawProtobufDecoder{}
-	if len(cfg.ProtoPaths) > 0 {
-		protoReg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths)
-		for _, e := range protoErrs {
-			fmt.Fprintf(os.Stderr, "proto: %v\n", e)
-		}
-		protoDec.ProtoReg = protoReg
-	}
-	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
-	decoderReg := bodydecoder.NewRegistry(grpcDec, protoDec)
 
 	tuiCfg := tui.AppConfig{
 		Store:       s,

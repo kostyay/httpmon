@@ -255,6 +255,75 @@ func TestRawProtobufDecoder_MultipleFieldTypes(t *testing.T) {
 	}
 }
 
+func TestRawProtobufDecoder_CanEncode(t *testing.T) {
+	d := &RawProtobufDecoder{}
+	// CanEncode should match same content types as CanDecode.
+	for _, ct := range []string{"application/protobuf", "application/grpc+proto"} {
+		if !d.CanEncode(ct) {
+			t.Errorf("CanEncode should match %q", ct)
+		}
+	}
+	for _, ct := range []string{"application/json", "application/grpc-web"} {
+		if d.CanEncode(ct) {
+			t.Errorf("CanEncode should not match %q", ct)
+		}
+	}
+}
+
+func TestRawProtobufDecoder_Encode(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	d := &RawProtobufDecoder{ProtoReg: reg}
+
+	jsonBody := []byte(`{"name": "Alice", "age": 30}`)
+	wire, err := d.Encode(jsonBody, "application/protobuf", DecoderMetadata{
+		RequestPath: "/testpkg.Greeter/SayHello",
+		IsRequest:   true,
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	// Verify by decoding back.
+	decoded, _, err := d.Decode(wire, DecoderMetadata{
+		RequestPath: "/testpkg.Greeter/SayHello",
+		IsRequest:   true,
+	})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(decoded), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if got["name"] != "Alice" {
+		t.Errorf("name = %v", got["name"])
+	}
+}
+
+func TestRawProtobufDecoder_Encode_NoProto(t *testing.T) {
+	d := &RawProtobufDecoder{} // no ProtoReg
+	_, err := d.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{
+		RequestPath: "/testpkg.Greeter/SayHello",
+		IsRequest:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error without proto registry")
+	}
+}
+
+func TestRawProtobufDecoder_Encode_NoMethodMatch(t *testing.T) {
+	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
+	d := &RawProtobufDecoder{ProtoReg: reg}
+
+	_, err := d.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{
+		RequestPath: "/unknown.Svc/Method",
+		IsRequest:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown method")
+	}
+}
+
 func TestStripParams(t *testing.T) {
 	tests := []struct {
 		input, want string
