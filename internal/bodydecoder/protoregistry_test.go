@@ -195,7 +195,7 @@ func TestDecodeNamed_Response(t *testing.T) {
 
 func TestRawProtobufDecoder_NamedFallbackToRaw(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &RawProtobufDecoder{ProtoReg: reg}
+	d := &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}
 
 	// Unknown path: should fall back to raw wire decode.
 	body := buildProto(varintField(1, 42))
@@ -211,7 +211,7 @@ func TestRawProtobufDecoder_NamedFallbackToRaw(t *testing.T) {
 
 func TestRawProtobufDecoder_NamedDecode(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &RawProtobufDecoder{ProtoReg: reg}
+	d := &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}
 
 	body := buildProto(
 		bytesField(1, []byte("Bob")),

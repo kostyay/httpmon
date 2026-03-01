@@ -131,9 +131,11 @@ func (r *ProtoRegistry) newMessage(requestPath string, isRequest bool) (*dynamic
 		return nil, fmt.Errorf("no method descriptor for path %q", requestPath)
 	}
 
-	msgDesc := method.Output()
+	var msgDesc protoreflect.MessageDescriptor
 	if isRequest {
 		msgDesc = method.Input()
+	} else {
+		msgDesc = method.Output()
 	}
 	return dynamicpb.NewMessage(msgDesc), nil
 }

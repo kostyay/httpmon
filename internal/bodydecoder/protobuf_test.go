@@ -272,7 +272,7 @@ func TestRawProtobufDecoder_CanEncode(t *testing.T) {
 
 func TestRawProtobufDecoder_Encode(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &RawProtobufDecoder{ProtoReg: reg}
+	d := &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}
 
 	jsonBody := []byte(`{"name": "Alice", "age": 30}`)
 	wire, err := d.Encode(jsonBody, "application/protobuf", DecoderMetadata{
@@ -301,7 +301,7 @@ func TestRawProtobufDecoder_Encode(t *testing.T) {
 }
 
 func TestRawProtobufDecoder_Encode_NoProto(t *testing.T) {
-	d := &RawProtobufDecoder{} // no ProtoReg
+	d := &RawProtobufDecoder{} // no ResolveReg
 	_, err := d.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{
 		RequestPath: "/testpkg.Greeter/SayHello",
 		IsRequest:   true,
@@ -313,7 +313,7 @@ func TestRawProtobufDecoder_Encode_NoProto(t *testing.T) {
 
 func TestRawProtobufDecoder_Encode_NoMethodMatch(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &RawProtobufDecoder{ProtoReg: reg}
+	d := &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}
 
 	_, err := d.Encode([]byte(`{}`), "application/protobuf", DecoderMetadata{
 		RequestPath: "/unknown.Svc/Method",

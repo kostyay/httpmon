@@ -263,6 +263,62 @@ func TestProtoPaths_OmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestProtoHosts_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.ProtoHosts = map[string]ProtoHostConfig{
+		"api.example.com": {
+			Paths:    []string{"/protos/api"},
+			Includes: []string{"/protos/shared"},
+		},
+		"*.internal.io": {
+			Paths: []string{"/protos/internal/service.proto"},
+		},
+	}
+
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.ProtoHosts) != 2 {
+		t.Fatalf("ProtoHosts len = %d, want 2", len(loaded.ProtoHosts))
+	}
+	api := loaded.ProtoHosts["api.example.com"]
+	if !slices.Equal(api.Paths, []string{"/protos/api"}) {
+		t.Errorf("api paths = %v", api.Paths)
+	}
+	if !slices.Equal(api.Includes, []string{"/protos/shared"}) {
+		t.Errorf("api includes = %v", api.Includes)
+	}
+	internal := loaded.ProtoHosts["*.internal.io"]
+	if !slices.Equal(internal.Paths, []string{"/protos/internal/service.proto"}) {
+		t.Errorf("internal paths = %v", internal.Paths)
+	}
+}
+
+func TestProtoHosts_OmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	if err := cfg.Save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, configFile))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := raw["proto_hosts"]; ok {
+		t.Error("proto_hosts should be omitted when empty")
+	}
+}
+
 func TestProtoPaths_MissingFieldLoadsNil(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, configFile), []byte(`{"proxy_port":8080}`), 0o600); err != nil {

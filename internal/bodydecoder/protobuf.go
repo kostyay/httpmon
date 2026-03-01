@@ -20,10 +20,12 @@ var protobufContentTypes = []string{
 }
 
 // RawProtobufDecoder decodes protobuf wire format into a JSON-like
-// representation using field numbers as keys. When ProtoReg is set and
+// representation using field numbers as keys. When ResolveReg is set and
 // the request has a gRPC path, it attempts named message decode first.
 type RawProtobufDecoder struct {
-	ProtoReg *ProtoRegistry
+	// ResolveReg returns the ProtoRegistry for a given host.
+	// When nil, named decode/encode is unavailable.
+	ResolveReg ProtoRegResolver
 }
 
 func (d *RawProtobufDecoder) CanDecode(contentType string) bool {
@@ -35,22 +37,31 @@ func (d *RawProtobufDecoder) CanEncode(contentType string) bool {
 }
 
 func (d *RawProtobufDecoder) Encode(jsonBody []byte, _ string, meta DecoderMetadata) ([]byte, error) {
-	if d.ProtoReg == nil || !d.ProtoReg.HasMethods() {
+	reg := d.resolveReg(meta.Host)
+	if reg == nil || !reg.HasMethods() {
 		return nil, fmt.Errorf("proto registry has no methods: %w", ErrNoEncoder)
 	}
-	return d.ProtoReg.EncodeNamed(jsonBody, meta.RequestPath, meta.IsRequest)
+	return reg.EncodeNamed(jsonBody, meta.RequestPath, meta.IsRequest)
 }
 
 func (d *RawProtobufDecoder) Decode(body []byte, meta DecoderMetadata) (string, string, error) {
 	// Try named decode if proto registry is available and we have a gRPC path.
-	if d.ProtoReg != nil && d.ProtoReg.HasMethods() && meta.RequestPath != "" {
-		if decoded, err := d.ProtoReg.DecodeNamed(body, meta.RequestPath, meta.IsRequest); err == nil {
+	if reg := d.resolveReg(meta.Host); reg != nil && reg.HasMethods() && meta.RequestPath != "" {
+		if decoded, err := reg.DecodeNamed(body, meta.RequestPath, meta.IsRequest); err == nil {
 			return decoded, "application/json", nil
 		}
 		// Fall through to raw wire decode on failure.
 	}
 
 	return d.decodeRaw(body)
+}
+
+// resolveReg returns the ProtoRegistry for the given host, or nil.
+func (d *RawProtobufDecoder) resolveReg(host string) *ProtoRegistry {
+	if d.ResolveReg == nil {
+		return nil
+	}
+	return d.ResolveReg(host)
 }
 
 // decodeRaw performs raw wire-format decoding (field numbers as keys).

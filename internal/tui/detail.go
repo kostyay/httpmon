@@ -162,7 +162,7 @@ func renderRequestDetail(b *strings.Builder, meta *store.FlowMeta, data *store.F
 		b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["body"]) + " Body"))
 		b.WriteString("\n")
 		if !opts.Collapsed["body"] {
-			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, IsRequest: true}
+			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, Host: meta.Host, IsRequest: true}
 			return renderBody(b, data.RequestBody, data.RequestHeaders.Get("Content-Type"), opts, dm)
 		}
 		b.WriteString("\n")
@@ -199,7 +199,7 @@ func renderResponseDetail(b *strings.Builder, meta *store.FlowMeta, data *store.
 		b.WriteString(styleSection.Render(sectionIcon(opts.Collapsed["body"]) + " Body"))
 		b.WriteString("\n")
 		if !opts.Collapsed["body"] {
-			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, IsRequest: false}
+			dm := bodydecoder.DecoderMetadata{RequestPath: meta.Path, Host: meta.Host, IsRequest: false}
 			return renderBody(b, data.ResponseBody, meta.ContentType, opts, dm)
 		}
 		b.WriteString("\n")

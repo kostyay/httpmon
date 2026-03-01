@@ -176,7 +176,7 @@ func TestGRPCWebDecoder_CanEncode(t *testing.T) {
 
 func TestGRPCWebDecoder_Encode(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ProtoReg: reg}}
+	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}}
 
 	jsonBody := []byte(`{"name": "Alice", "age": 30}`)
 	wire, err := d.Encode(jsonBody, "application/grpc-web", DecoderMetadata{
@@ -202,7 +202,7 @@ func TestGRPCWebDecoder_Encode(t *testing.T) {
 
 func TestGRPCWebDecoder_EncodeRoundTrip(t *testing.T) {
 	reg, _ := LoadProtoFiles([]string{"testdata/test.proto"})
-	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ProtoReg: reg}}
+	d := &GRPCWebDecoder{Proto: &RawProtobufDecoder{ResolveReg: StaticResolver(reg)}}
 	meta := DecoderMetadata{RequestPath: "/testpkg.Greeter/SayHello", IsRequest: true}
 
 	jsonBody := []byte(`{"name": "Bob", "age": 25}`)
