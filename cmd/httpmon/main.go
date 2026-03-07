@@ -128,12 +128,33 @@ func main() {
 	// Build body decoder registry for protobuf/gRPC decoding.
 	// Must be set before Init() so the interceptor can use it.
 	protoDec := &bodydecoder.RawProtobufDecoder{}
+
+	// Global (fallback) proto registry.
+	var globalProtoReg *bodydecoder.ProtoRegistry
 	if len(cfg.ProtoPaths) > 0 {
-		protoReg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths, cfg.ProtoIncludes...)
+		reg, protoErrs := bodydecoder.LoadProtoFiles(cfg.ProtoPaths, cfg.ProtoIncludes...)
 		for _, e := range protoErrs {
 			fmt.Fprintf(os.Stderr, "proto: %v\n", e)
 		}
-		protoDec.ProtoReg = protoReg
+		globalProtoReg = reg
+	}
+
+	// Per-host proto registries.
+	var hostRegs map[string]*bodydecoder.ProtoRegistry
+	if len(cfg.ProtoHosts) > 0 {
+		hostRegs = make(map[string]*bodydecoder.ProtoRegistry, len(cfg.ProtoHosts))
+		for pattern, hcfg := range cfg.ProtoHosts {
+			reg, protoErrs := bodydecoder.LoadProtoFiles(hcfg.Paths, hcfg.Includes...)
+			for _, e := range protoErrs {
+				fmt.Fprintf(os.Stderr, "proto[%s]: %v\n", pattern, e)
+			}
+			hostRegs[pattern] = reg
+		}
+	}
+
+	if globalProtoReg != nil || len(hostRegs) > 0 {
+		har := bodydecoder.NewHostAwareRegistry(globalProtoReg, hostRegs)
+		protoDec.ResolveReg = har.Resolver()
 	}
 	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
 	decoderReg := bodydecoder.NewRegistry(grpcDec, protoDec)

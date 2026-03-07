@@ -55,12 +55,12 @@ func newInterceptor(cfg interceptorConfig) *interceptor {
 
 // runScriptsWithCodec decodes a binary body (e.g. protobuf) into JSON before
 // the script callback, then re-encodes to wire format if the script modified it.
-// Falls back to original bytes on any encode error.
+// Falls back to raw bytes when decoding is unavailable or re-encoding fails.
 func (i *interceptor) runScriptsWithCodec(
 	body []byte, contentType string, meta bodydecoder.DecoderMetadata,
 	run func(body []byte) (modified []byte, changed bool),
 ) []byte {
-	// No registry, or content type not decodable — run scripts on raw bytes.
+	// No registry or content type not decodable -- run scripts on raw bytes.
 	if i.decoderReg == nil {
 		result, _ := run(body)
 		return result
@@ -164,6 +164,7 @@ func (i *interceptor) Request(f *mp.Flow) {
 		contentType := f.Request.Header.Get("Content-Type")
 		meta := bodydecoder.DecoderMetadata{
 			RequestPath: f.Request.URL.Path,
+			Host:        f.Request.URL.Hostname(),
 			IsRequest:   true,
 		}
 
@@ -268,6 +269,7 @@ func (i *interceptor) Response(f *mp.Flow) {
 		contentType := f.Response.Header.Get("Content-Type")
 		meta := bodydecoder.DecoderMetadata{
 			RequestPath: f.Request.URL.Path,
+			Host:        f.Request.URL.Hostname(),
 			IsRequest:   false,
 		}
 

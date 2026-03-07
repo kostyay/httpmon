@@ -32,6 +32,9 @@ Think Proxyman or Charles, but in your terminal.
 - **Scripting** — JavaScript hooks to modify requests/responses on the fly
 - **Bandwidth throttling** — Simulate 3G/4G/WiFi network conditions
 - **Map Local** — Serve local files instead of upstream responses
+- **Protobuf / gRPC-Web** — Decode and display protobuf and gRPC-Web bodies as JSON when `.proto` files are provided
+- **Process identification** — See which OS process initiated each request (best with sudo)
+- **Persistent settings** — Configure defaults in `~/.httpmon/config.json` or via the TUI settings screen (`P`)
 - **Keyboard-driven** — Vim-style navigation throughout — no mouse required
 
 ## Quick Start
@@ -68,6 +71,8 @@ httpmon --throttle 3g            # Simulate 3G network (750 kbps)
 httpmon --throttle 4g            # Simulate 4G network (4 Mbps)
 httpmon --latency 100ms          # Add 100ms latency to responses
 httpmon --maplocal rules.json    # Serve local files for matching URLs
+httpmon --proto-path ./protos    # Load .proto files for protobuf decoding
+httpmon --proto-include ./inc    # Protoc -I style import paths
 httpmon --mcp                    # Start with MCP server enabled
 httpmon --mcp-token              # Print MCP bearer token
 httpmon --install-ca             # Install CA cert into system trust store (needs sudo)
@@ -230,6 +235,36 @@ Changes auto-save back to the rules file.
 
 Flows served from local files show a `[L]` indicator in the flow list.
 
+## Protobuf / gRPC-Web
+
+httpmon can decode protobuf and gRPC-Web response/request bodies into readable JSON when you supply `.proto` files.
+
+```bash
+httpmon --proto-path ./protos              # Single dir or file
+httpmon --proto-path ./a --proto-path ./b  # Multiple paths
+httpmon --proto-include ./vendor           # Import search dirs (like protoc -I)
+```
+
+Proto paths persist in `~/.httpmon/config.json`. When a request/response has a matching content type (`application/grpc-web`, `application/grpc-web+proto`, `application/x-protobuf`), the body is automatically decoded and displayed as JSON in the detail view.
+
+## Process Identification
+
+httpmon identifies which OS process originated each proxied request. The **PROCESS** column appears in the flow list, and tree mode (`t`) can group by process instead of host.
+
+Works out of the box; run with `sudo` for full resolution accuracy. Configure tree grouping via the settings screen (`P`) or `~/.httpmon/config.json` (`TreeGroupBy: "process"`).
+
+## Settings
+
+Persistent configuration is stored in `~/.httpmon/config.json` (created on first run). CLI flags override config values for that session.
+
+Press `P` in the TUI to open the settings screen where you can edit:
+
+- Proxy port, buffer size
+- MCP enabled/address
+- Throttle preset
+- List mode (flat/tree), tree group by (host/process)
+- Proto paths and import dirs
+
 ## MCP Server
 
 httpmon includes an MCP (Model Context Protocol) server so LLM agents can programmatically inspect and debug HTTP traffic.
@@ -318,6 +353,7 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 | `S` | Scripts manager |
 | `T` | Throttle settings |
 | `M` | Map Local rules |
+| `P` | Settings |
 | `?` | Help overlay |
 
 ## Architecture
@@ -336,6 +372,10 @@ internal/certutil/    CA certificate generation and system trust installation
 internal/throttle/    Bandwidth throttling (wraps io.Reader with rate limiting)
 internal/maplocal/    Map remote URLs to local files (wildcard pattern matching)
 internal/scripting/   JavaScript scripting hooks (goja runtime, YAML frontmatter)
+internal/bodydecoder/ Wire format decoding (protobuf, gRPC-Web)
+internal/config/      Persistent settings (~/.httpmon/config.json)
+internal/procinfo/    Process identification for proxied requests
+internal/mcpserver/   MCP server for LLM-driven debugging
 ```
 
 Built with [go-mitmproxy](https://github.com/lqqyt2423/go-mitmproxy) and [Bubble Tea](https://github.com/charmbracelet/bubbletea).

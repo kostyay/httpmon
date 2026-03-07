@@ -18,18 +18,25 @@ const (
 	oldTokenFile = "mcp-token"
 )
 
+// ProtoHostConfig maps a host pattern to its own set of .proto files.
+type ProtoHostConfig struct {
+	Paths    []string `json:"paths"`
+	Includes []string `json:"includes,omitempty"`
+}
+
 // Config holds persistent httpmon settings stored in ~/.httpmon/config.json.
 type Config struct {
-	ProxyPort      int      `json:"proxy_port"`
-	MCPEnabled     bool     `json:"mcp_enabled"`
-	MCPAddr        string   `json:"mcp_addr"`
-	MCPToken       string   `json:"mcp_token"`
-	BufferSize     int      `json:"buffer_size"`
-	ThrottlePreset string   `json:"throttle_preset"`
-	ListMode       string   `json:"list_mode"`
-	TreeGroupBy    string   `json:"tree_group_by"`
-	ProtoPaths     []string `json:"proto_paths,omitempty"`
-	ProtoIncludes  []string `json:"proto_includes,omitempty"`
+	ProxyPort      int                        `json:"proxy_port"`
+	MCPEnabled     bool                       `json:"mcp_enabled"`
+	MCPAddr        string                     `json:"mcp_addr"`
+	MCPToken       string                     `json:"mcp_token"`
+	BufferSize     int                        `json:"buffer_size"`
+	ThrottlePreset string                     `json:"throttle_preset"`
+	ListMode       string                     `json:"list_mode"`
+	TreeGroupBy    string                     `json:"tree_group_by"`
+	ProtoPaths     []string                   `json:"proto_paths,omitempty"`
+	ProtoIncludes  []string                   `json:"proto_includes,omitempty"`
+	ProtoHosts     map[string]ProtoHostConfig `json:"proto_hosts,omitempty"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

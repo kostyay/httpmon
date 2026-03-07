@@ -53,7 +53,7 @@ func newGRPCDecoderRegistry(t *testing.T, protoPaths []string) *bodydecoder.Regi
 		for _, e := range errs {
 			t.Logf("proto load warning: %v", e)
 		}
-		protoDec.ProtoReg = protoReg
+		protoDec.ResolveReg = bodydecoder.StaticResolver(protoReg)
 	}
 	grpcDec := &bodydecoder.GRPCWebDecoder{Proto: protoDec}
 	return bodydecoder.NewRegistry(grpcDec, protoDec)

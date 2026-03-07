@@ -11,6 +11,7 @@ var ErrNoDecoder = errors.New("no decoder matched content type")
 // for message type resolution (e.g. gRPC service/method from path).
 type DecoderMetadata struct {
 	RequestPath  string // e.g. /api/v1/package.Service/Method
+	Host         string // request host, used for per-host proto resolution
 	IsRequest    bool   // true = request body, false = response body
 	OriginalBody []byte // set during re-encode so encoders can preserve non-data frames
 }
