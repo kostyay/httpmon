@@ -303,6 +303,10 @@ func (i *interceptor) Response(f *mp.Flow) {
 			respBody = ctx.Body
 			f.Response.Body = ctx.Body
 		}
+
+		// Body is decoded (decompressed); fix headers to match.
+		f.Response.Header.Del("Content-Encoding")
+		f.Response.Header.Set("Content-Length", strconv.Itoa(len(f.Response.Body)))
 	}
 
 	// Merge response fields into existing FlowData (preserves
