@@ -526,14 +526,14 @@ func TestResponseBodyRecompressedForClient(t *testing.T) {
 
 func TestRequestheadersSkipsNonAllowedHost(t *testing.T) {
 	s := store.New(100)
-	hf := hostfilter.New(nil, []string{"api.example.io"})
+	hf := hostfilter.New(nil, []string{"api.example.com"})
 	ic := newInterceptor(interceptorConfig{Store: s, HostFilter: hf})
 
-	// Flow for a non-allowed host (simulates CONNECT to app.example.io).
+	// Flow for a non-allowed host (simulates CONNECT to app.example.com).
 	blocked := &mp.Flow{
 		Request: &mp.Request{
 			Method: "CONNECT",
-			URL:    &url.URL{Host: "app.example.io:443"},
+			URL:    &url.URL{Host: "app.example.com:443"},
 			Header: http.Header{},
 		},
 	}
@@ -545,7 +545,7 @@ func TestRequestheadersSkipsNonAllowedHost(t *testing.T) {
 
 	// Flow for the allowed host should be recorded.
 	allowed := newTestFlow(&fakeConn{addr: fakeAddr{"127.0.0.1:5555"}}, true)
-	allowed.Request.URL = &url.URL{Host: "api.example.io", Path: "/v1/data"}
+	allowed.Request.URL = &url.URL{Host: "api.example.com", Path: "/v1/data"}
 	ic.Requestheaders(allowed)
 
 	if s.Len() != 1 {
