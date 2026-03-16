@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -37,12 +38,7 @@ func GlobMatch(pattern, url string) bool {
 
 // GlobMatchAny returns true if the URL matches any of the patterns.
 func GlobMatchAny(patterns []string, url string) bool {
-	for _, p := range patterns {
-		if GlobMatch(p, url) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(patterns, func(p string) bool { return GlobMatch(p, url) })
 }
 
 // wildcardMatch matches s against pattern where * matches any substring.

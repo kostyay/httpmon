@@ -27,38 +27,17 @@ type Proxy struct {
 	addr  string
 	intc  *interceptor // kept for runtime throttle changes
 
-	// caDir is the directory containing CA cert files.
-	caDir string
+	caDir      string   // CA cert directory
+	caCertPath string   // set after EnsureCA
+	logFile    *os.File // closed on Stop
 
-	// caCertPath is set after EnsureCA generates/loads the cert.
-	caCertPath string
-
-	// logFile holds the open log file handle (closed on Stop).
-	logFile *os.File
-
-	// SslInsecure skips TLS verification for upstream servers.
-	SslInsecure bool
-
-	// HostFilter controls which hosts are intercepted vs tunneled.
-	HostFilter *hostfilter.HostFilter
-
-	// ScriptEngine is optional; enables request/response rewriting via JS scripts.
-	ScriptEngine *scripting.Engine
-
-	// ThrottleBPS is initial bandwidth limit in bytes/sec (0 = unlimited).
-	ThrottleBPS int64
-
-	// ThrottleLatency is initial per-response latency to add.
-	ThrottleLatency time.Duration
-
-	// BreakpointCtrl is optional; enables script breakpoints.
-	BreakpointCtrl breakpoint.Controller
-
-	// Resolver is optional; resolves process info for connections.
-	Resolver *procinfo.Resolver
-
-	// DecoderRegistry is optional; enables transparent protobuf/gRPC body
-	// decode/encode around script execution.
+	SslInsecure     bool
+	HostFilter      *hostfilter.HostFilter
+	ScriptEngine    *scripting.Engine
+	ThrottleBPS     int64         // bytes/sec (0 = unlimited)
+	ThrottleLatency time.Duration // per-response latency
+	BreakpointCtrl  breakpoint.Controller
+	Resolver        *procinfo.Resolver
 	DecoderRegistry *bodydecoder.Registry
 }
 
@@ -112,6 +91,7 @@ func (p *Proxy) Init(addr string) error {
 		Engine:          p.ScriptEngine,
 		Resolver:        p.Resolver,
 		DecoderRegistry: p.DecoderRegistry,
+		HostFilter:      p.HostFilter,
 		ThrottleBPS:     p.ThrottleBPS,
 		ThrottleLatency: p.ThrottleLatency,
 	})

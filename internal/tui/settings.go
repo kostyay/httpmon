@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -111,13 +112,7 @@ func (a *App) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			f.set(a.settingsConfig, strconv.FormatBool(f.get(a.settingsConfig) != "true"))
 		case "enum":
 			cur := f.get(a.settingsConfig)
-			idx := 0
-			for i, opt := range f.options {
-				if opt == cur {
-					idx = i
-					break
-				}
-			}
+			idx := max(slices.Index(f.options, cur), 0)
 			next := (idx + 1) % len(f.options)
 			f.set(a.settingsConfig, f.options[next])
 		case "int", "string":

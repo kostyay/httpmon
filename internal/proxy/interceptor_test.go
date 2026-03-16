@@ -1,18 +1,26 @@
 package proxy
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kostyay/httpmon/internal/bodydecoder"
+	"github.com/kostyay/httpmon/internal/hostfilter"
 	"github.com/kostyay/httpmon/internal/procinfo"
+	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 	"github.com/kostyay/httpmon/internal/throttle"
 )
@@ -438,4 +446,199 @@ func TestSetThrottleRuntimeChange(t *testing.T) {
 	if out == in {
 		t.Error("should wrap after SetThrottle")
 	}
+}
+
+// TestResponseBodyNotTruncatedToClient verifies that when a gzip-compressed
+// response decodes to more than maxBodySize bytes, the interceptor re-gzips
+// the body after script processing so the client receives a valid, complete
+// compressed response — not a truncated decoded body.
+func TestResponseBodyRecompressedForClient(t *testing.T) {
+	// Build a payload larger than maxBodySize when decoded.
+	// Highly repetitive so gzip shrinks it well below the streaming threshold.
+	unit := []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	decoded := bytes.Repeat(unit, (maxBodySize/len(unit))+100)
+	if len(decoded) <= maxBodySize {
+		t.Fatalf("setup: decoded len %d must exceed maxBodySize %d", len(decoded), maxBodySize)
+	}
+
+	// Compress it; repetitive content should be far below the streaming threshold.
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	_, err := gz.Write(decoded)
+	require.NoError(t, err, "gzip write")
+	require.NoError(t, gz.Close(), "gzip close")
+	compressed := buf.Bytes()
+	require.Less(t, len(compressed), maxBodySize, "compressed body must be < maxBodySize")
+
+	s := store.New(100)
+	engine := scripting.New() // empty engine – mirrors real httpmon default
+	ic := newInterceptor(interceptorConfig{Store: s, Engine: engine})
+
+	conn := &fakeConn{addr: fakeAddr{"127.0.0.1:55555"}}
+	flow := newTestFlow(conn, false)
+	ic.Requestheaders(flow)
+
+	flow.Response = &mp.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type":     {"text/javascript"},
+			"Content-Encoding": {"gzip"},
+			"Content-Length":   {strconv.Itoa(len(compressed))},
+		},
+		Body: compressed,
+	}
+	ic.Response(flow)
+
+	// f.Response.Body must be re-gzipped — it should decompress to the full
+	// decoded body, and its compressed size must be under maxBodySize.
+	require.Equal(t, "gzip", flow.Response.Header.Get("Content-Encoding"),
+		"Content-Encoding must be preserved as gzip")
+	require.Less(t, len(flow.Response.Body), maxBodySize,
+		"re-compressed body must be under maxBodySize")
+
+	wantCL := strconv.Itoa(len(flow.Response.Body))
+	require.Equal(t, wantCL, flow.Response.Header.Get("Content-Length"),
+		"Content-Length must match re-compressed body size")
+
+	// Decompress and verify full content.
+	gr, err := gzip.NewReader(bytes.NewReader(flow.Response.Body))
+	require.NoError(t, err, "gzip.NewReader on re-compressed body")
+	decompressed, err := io.ReadAll(gr)
+	require.NoError(t, err, "reading re-compressed body")
+	require.NoError(t, gr.Close())
+	require.Equal(t, len(decoded), len(decompressed),
+		"decompressed body must match original decoded length")
+	require.Equal(t, decoded, decompressed,
+		"decompressed body content must match original")
+
+	// Ring-buffer stored copy: decoded body capped for TUI display.
+	// SizeBytes must reflect the actual (full) decoded size.
+	meta, data, err := s.Get(store.FlowID(flow.Id.String()))
+	require.NoError(t, err)
+	require.NotNil(t, data, "expected flow data in store")
+	if len(data.ResponseBody) > maxBodySize {
+		t.Errorf("stored body len = %d, want <= %d", len(data.ResponseBody), maxBodySize)
+	}
+	if meta.SizeBytes != int64(len(decoded)) {
+		t.Errorf("SizeBytes = %d, want %d", meta.SizeBytes, int64(len(decoded)))
+	}
+}
+
+func TestRequestheadersSkipsNonAllowedHost(t *testing.T) {
+	s := store.New(100)
+	hf := hostfilter.New(nil, []string{"api.example.com"})
+	ic := newInterceptor(interceptorConfig{Store: s, HostFilter: hf})
+
+	// Flow for a non-allowed host (simulates CONNECT to app.example.com).
+	blocked := &mp.Flow{
+		Request: &mp.Request{
+			Method: "CONNECT",
+			URL:    &url.URL{Host: "app.example.com:443"},
+			Header: http.Header{},
+		},
+	}
+	ic.Requestheaders(blocked)
+
+	if s.Len() != 0 {
+		t.Errorf("non-allowed host recorded: store.Len() = %d, want 0", s.Len())
+	}
+
+	// Flow for the allowed host should be recorded.
+	allowed := newTestFlow(&fakeConn{addr: fakeAddr{"127.0.0.1:5555"}}, true)
+	allowed.Request.URL = &url.URL{Host: "api.example.com", Path: "/v1/data"}
+	ic.Requestheaders(allowed)
+
+	if s.Len() != 1 {
+		t.Errorf("allowed host not recorded: store.Len() = %d, want 1", s.Len())
+	}
+}
+
+func TestRequestheadersNoFilterRecordsAll(t *testing.T) {
+	s := store.New(100)
+	ic := newInterceptor(interceptorConfig{Store: s})
+
+	flow := &mp.Flow{
+		Request: &mp.Request{
+			Method: "CONNECT",
+			URL:    &url.URL{Host: "anything.com:443"},
+			Header: http.Header{},
+		},
+	}
+	ic.Requestheaders(flow)
+
+	if s.Len() != 1 {
+		t.Errorf("without filter, all flows should be recorded: store.Len() = %d, want 1", s.Len())
+	}
+}
+
+func TestRecompressDeflate(t *testing.T) {
+	original := []byte("hello deflate world — repeated enough to compress well")
+	compressed := recompress(original, "deflate")
+	require.NotNil(t, compressed, "recompress(deflate) must not return nil")
+
+	r := flate.NewReader(bytes.NewReader(compressed))
+	decompressed, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.Equal(t, original, decompressed)
+}
+
+func TestRecompressZstd(t *testing.T) {
+	original := []byte("hello zstd world — repeated enough to compress well")
+	compressed := recompress(original, "zstd")
+	require.NotNil(t, compressed, "recompress(zstd) must not return nil")
+
+	dec, err := zstd.NewReader(bytes.NewReader(compressed))
+	require.NoError(t, err)
+	decompressed, err := io.ReadAll(dec)
+	require.NoError(t, err)
+	dec.Close()
+	require.Equal(t, original, decompressed)
+}
+
+func TestRecompressUnsupported(t *testing.T) {
+	require.Nil(t, recompress([]byte("data"), "identity"))
+	require.Nil(t, recompress([]byte("data"), ""))
+	require.Nil(t, recompress([]byte("data"), "unknown"))
+}
+
+func TestRespondedBranchNoUpstreamHeaderLeakage(t *testing.T) {
+	s := store.New(100)
+	engine := scripting.New()
+	require.NoError(t, engine.LoadScript("leak", `
+		function onResponse(ctx) {
+			ctx.respondWith({
+				status: 200,
+				body: "replaced",
+				headers: {"X-Custom": "only-this"}
+			});
+		}
+	`, ""))
+	ic := newInterceptor(interceptorConfig{Store: s, Engine: engine})
+
+	conn := &fakeConn{addr: fakeAddr{"127.0.0.1:44444"}}
+	flow := newTestFlow(conn, false)
+	ic.Requestheaders(flow)
+
+	flow.Response = &mp.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type":  {"text/plain"},
+			"Server":        {"upstream-server"},
+			"X-Powered-By":  {"upstream-framework"},
+			"X-Upstream-Id": {"should-not-leak"},
+		},
+		Body: []byte("original"),
+	}
+	ic.Response(flow)
+
+	// The Responded branch should use a fresh header set.
+	// Only headers explicitly set by the script should be present.
+	require.Equal(t, "only-this", flow.Response.Header.Get("X-Custom"),
+		"script-set header must be present")
+	require.Empty(t, flow.Response.Header.Get("Server"),
+		"upstream Server header must not leak")
+	require.Empty(t, flow.Response.Header.Get("X-Powered-By"),
+		"upstream X-Powered-By header must not leak")
+	require.Empty(t, flow.Response.Header.Get("X-Upstream-Id"),
+		"upstream X-Upstream-Id header must not leak")
 }

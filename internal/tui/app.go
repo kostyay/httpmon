@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,6 +145,7 @@ type App struct {
 
 	bodyDecoder BodyDecoderRegistry
 
+	darkBg        bool // cached at startup; avoids per-render terminal query
 	width, height int
 	ready         bool
 }
@@ -180,6 +182,7 @@ func NewApp(cfg AppConfig) *App {
 		mcp:             cfg.MCP,
 		dataDir:         cfg.DataDir,
 		bodyDecoder:     cfg.BodyDecoder,
+		darkBg:          lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
 		filterInput:     ti,
 		searchInput:     si,
 		groupExpanded:   make(map[string]bool),
@@ -372,9 +375,7 @@ func (a *App) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Global keys (all modes)
 	switch msg.String() {
-	case "q":
-		return a, tea.Quit
-	case "ctrl+c":
+	case "q", "ctrl+c":
 		return a, tea.Quit
 	case "/":
 		cmd := a.filterInput.Focus()
@@ -577,11 +578,10 @@ func (a *App) treeKeyFn() func(store.FlowMeta) string {
 
 // jumpToParentGroup moves cursor to the group header for the given key.
 func (a *App) jumpToParentGroup(key string) {
-	for i, row := range a.treeRows {
-		if row.IsHeader && row.GroupKey == key {
-			a.selectedIdx = i
-			return
-		}
+	if i := slices.IndexFunc(a.treeRows, func(r treeRow) bool {
+		return r.IsHeader && r.GroupKey == key
+	}); i >= 0 {
+		a.selectedIdx = i
 	}
 }
 
@@ -736,21 +736,16 @@ func (a *App) applySearch() {
 }
 
 func (a *App) nextFlow(delta int) {
-	if len(a.flows) == 0 {
+	i := slices.IndexFunc(a.flows, func(f store.FlowMeta) bool { return f.ID == a.selectedID })
+	if i < 0 {
 		return
 	}
-	// Find current flow in list
-	for i, f := range a.flows {
-		if f.ID == a.selectedID {
-			next := i + delta
-			if next >= 0 && next < len(a.flows) {
-				a.selectedIdx = next
-				a.selectedID = a.flows[next].ID
-				a.detailImagePreview = false
-				a.updateDetailContent()
-			}
-			return
-		}
+	next := i + delta
+	if next >= 0 && next < len(a.flows) {
+		a.selectedIdx = next
+		a.selectedID = a.flows[next].ID
+		a.detailImagePreview = false
+		a.updateDetailContent()
 	}
 }
 
@@ -821,7 +816,7 @@ func (a *App) updateDetailContent() {
 	}
 
 	opts := renderOpts{
-		DarkBg:     lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
+		DarkBg:     a.darkBg,
 		PrettyJSON: !a.detailRaw,
 		Collapsed:  a.detailCollapsed,
 		Decoder:    a.bodyDecoder,

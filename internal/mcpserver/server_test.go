@@ -36,8 +36,7 @@ func TestStartStop(t *testing.T) {
 		t.Fatal("should not be running before Start")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := s.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)

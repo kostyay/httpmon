@@ -1,6 +1,7 @@
 package scripting
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -431,10 +432,7 @@ func readBackRespondWith(
 
 // isGojaInterrupt returns true if the error is a goja interrupt.
 func isGojaInterrupt(err error) bool {
-	if err == nil {
-		return false
-	}
-	_, ok := err.(*goja.InterruptedError)
+	_, ok := errors.AsType[*goja.InterruptedError](err)
 	return ok
 }
 
@@ -508,8 +506,7 @@ const (
 // DetectCategories returns categories based on static source analysis.
 func DetectCategories(source string) []ScriptCategory {
 	var cats []ScriptCategory
-	if strings.Contains(source, "ctx.breakpoint()") ||
-		strings.Contains(source, "ctx.breakpoint(") {
+	if strings.Contains(source, "ctx.breakpoint(") {
 		cats = append(cats, CategoryBreakpoint)
 	}
 	if strings.Contains(source, "ctx.respondWith(") {

@@ -38,9 +38,9 @@ func LoadProtoFiles(paths []string, includeDirs ...string) (*ProtoRegistry, []er
 	importDirs = append(importDirs, includeDirs...)
 
 	compiler := protocompile.Compiler{
-		Resolver: &protocompile.SourceResolver{
+		Resolver: protocompile.WithStandardImports(&protocompile.SourceResolver{
 			ImportPaths: importDirs,
-		},
+		}),
 	}
 
 	compiled, err := compiler.Compile(context.Background(), protoFiles...)
@@ -52,10 +52,10 @@ func LoadProtoFiles(paths []string, includeDirs ...string) (*ProtoRegistry, []er
 	reg := emptyRegistry()
 	for _, f := range compiled {
 		services := f.Services()
-		for i := 0; i < services.Len(); i++ {
+		for i := range services.Len() {
 			svc := services.Get(i)
 			methods := svc.Methods()
-			for j := 0; j < methods.Len(); j++ {
+			for j := range methods.Len() {
 				m := methods.Get(j)
 				key := string(svc.FullName()) + "/" + string(m.Name())
 				reg.methods[key] = m
@@ -163,7 +163,8 @@ func extractGRPCPath(path string) (service, method string) {
 }
 
 // resolveProtoPaths expands paths into individual .proto files and
-// collects import root directories.
+// collects import root directories. For directory paths that contain a
+// buf.lock, cached BSR module paths are added to the import dirs.
 func resolveProtoPaths(paths []string) (files []string, importDirs []string, errs []error) {
 	seen := map[string]bool{}
 	dirSet := map[string]bool{}
@@ -177,6 +178,15 @@ func resolveProtoPaths(paths []string) (files []string, importDirs []string, err
 
 		if info.IsDir() {
 			dirSet[p] = true
+			// Auto-resolve buf BSR dependencies from buf.lock.
+			if bufDirs, err := resolveBufCache(p); err != nil {
+				errs = append(errs, err)
+			} else {
+				for _, d := range bufDirs {
+					dirSet[d] = true
+				}
+			}
+
 			err := filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
 					return nil // skip errors

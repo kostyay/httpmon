@@ -82,10 +82,9 @@ func extractNonDataFrames(body []byte) []byte {
 	for len(remaining) >= frameHeaderLen {
 		flag := remaining[0]
 		length := binary.BigEndian.Uint32(remaining[1:frameHeaderLen])
-		end := frameHeaderLen + int(length)
-		if end > len(remaining) {
-			end = len(remaining) // truncated frame — preserve whatever bytes exist
-		}
+		end := min(frameHeaderLen+int(length),
+			// truncated frame — preserve whatever bytes exist
+			len(remaining))
 		if flag != flagData {
 			out = append(out, remaining[:end]...)
 		}
@@ -124,7 +123,7 @@ func extractDataFrames(body []byte) (payload []byte, notes []string, err error) 
 		case flag == flagCompressed:
 			notes = append(notes, fmt.Sprintf("[compressed gRPC payload, %d bytes]", length))
 		case flag&flagTrailers != 0:
-			// Trailer frame — skip.
+			// Trailer frame.
 		default:
 			notes = append(notes, fmt.Sprintf("[unknown frame flag 0x%02x, %d bytes]", flag, length))
 		}

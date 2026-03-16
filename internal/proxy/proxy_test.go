@@ -18,6 +18,7 @@ import (
 	mp "github.com/lqqyt2423/go-mitmproxy/proxy"
 	uuid "github.com/satori/go.uuid"
 
+	"github.com/kostyay/httpmon/internal/hostfilter"
 	"github.com/kostyay/httpmon/internal/scripting"
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -86,13 +87,12 @@ func proxyClient(port int) *http.Client {
 }
 
 func TestHTTPFlowCapture(t *testing.T) {
-	// Start an HTTP test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"ok":true}`)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -138,7 +138,7 @@ func TestConcurrentRequests(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, "ok")
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -167,18 +167,14 @@ func TestConcurrentRequests(t *testing.T) {
 }
 
 func TestBodyTruncation(t *testing.T) {
-	// Create a response body larger than maxBodySize
-	bigBody := make([]byte, maxBodySize+1000)
-	for i := range bigBody {
-		bigBody[i] = 'A'
-	}
+	bigBody := bytes.Repeat([]byte{'A'}, maxBodySize+1000)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(200)
 		w.Write(bigBody)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -235,7 +231,7 @@ func TestHTTPSFlowCapture(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"secure":true}`)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t, withSslInsecure())
 	client := proxyClient(port)
@@ -268,10 +264,9 @@ func TestRequestResponseBodyCapture(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		// Echo request body back as response
 		w.Write(body)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -312,7 +307,7 @@ func TestPOSTMethodCapture(t *testing.T) {
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"created":true}`)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -347,7 +342,7 @@ func TestServerErrorCapture(t *testing.T) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, "internal server error")
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -383,7 +378,7 @@ func TestMultipleHeaderValues(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, "ok")
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, s, port := setupProxy(t)
 	client := proxyClient(port)
@@ -420,6 +415,10 @@ func withScriptEngine(e *scripting.Engine) setupOpt {
 	return func(p *Proxy) { p.ScriptEngine = e }
 }
 
+func withHostFilter(hf *hostfilter.HostFilter) setupOpt {
+	return func(p *Proxy) { p.HostFilter = hf }
+}
+
 func TestAddrAndCACertPath(t *testing.T) {
 	p, _, _ := setupProxy(t)
 	if p.Addr() == "" {
@@ -437,10 +436,7 @@ func TestRequestBodyTruncation(t *testing.T) {
 	flowID := uuid.NewV4()
 	reqURL, _ := url.Parse("http://example.com/bigpost")
 
-	bigBody := make([]byte, maxBodySize+1000)
-	for i := range bigBody {
-		bigBody[i] = 'B'
-	}
+	bigBody := bytes.Repeat([]byte{'B'}, maxBodySize+1000)
 
 	f := &mp.Flow{
 		Id: flowID,
@@ -474,7 +470,7 @@ func TestScriptRequestMutation(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, "ok")
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	engine := scripting.New()
 	err := engine.LoadScript("mutate-req", `function onRequest(ctx) { ctx.headers["X-Scripted"] = "true"; }`, "")
@@ -503,7 +499,7 @@ func TestScriptRequestBlocking(t *testing.T) {
 		t.Error("upstream should not be reached when script blocks")
 		w.WriteHeader(200)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	engine := scripting.New()
 	err := engine.LoadScript("block-req", `function onRequest(ctx) { ctx.blocked = true; }`, "")
@@ -532,7 +528,7 @@ func TestScriptResponseMutation(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, "ok")
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	engine := scripting.New()
 	err := engine.LoadScript("mutate-resp", `function onResponse(ctx) { ctx.headers["X-Resp-Script"] = "yes"; }`, "")
@@ -587,5 +583,62 @@ func TestMarkFailed(t *testing.T) {
 	}
 	if meta.State != store.StateFailed {
 		t.Errorf("State = %d, want StateFailed (%d)", meta.State, store.StateFailed)
+	}
+}
+
+func TestHostFilterBlocksNonAllowedHTTPS(t *testing.T) {
+	// Allowed server — flows should be recorded.
+	allowed := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		fmt.Fprint(w, "allowed")
+	}))
+	t.Cleanup(allowed.Close)
+
+	// Blocked server — no flows should appear in the store.
+	blocked := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		fmt.Fprint(w, "blocked")
+	}))
+	t.Cleanup(blocked.Close)
+
+	// Extract host (without scheme) from each server's URL.
+	allowedHost := strings.TrimPrefix(allowed.URL, "https://")
+	blockedHost := strings.TrimPrefix(blocked.URL, "https://")
+
+	// Strip port for the allow-list pattern; ShouldIntercept strips port internally.
+	allowedHostOnly, _, _ := net.SplitHostPort(allowedHost)
+
+	hf := hostfilter.New(nil, []string{allowedHostOnly})
+	_, s, port := setupProxy(t, withSslInsecure(), withHostFilter(hf))
+	client := proxyClient(port)
+
+	// Request to allowed host.
+	resp, err := client.Get(allowed.URL + "/ok")
+	if err != nil {
+		t.Fatalf("GET allowed: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Request to blocked host — connection will be tunneled (CONNECT),
+	// but no flow should be recorded.
+	resp2, err := client.Get(blocked.URL + "/nope")
+	if err != nil {
+		t.Fatalf("GET blocked: %v", err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// Wait for the allowed flow to appear.
+	findFlow(t, s, "/ok")
+
+	// Verify no flows exist for the blocked host.
+	time.Sleep(300 * time.Millisecond)
+	flows, _ := s.List(nil, 0, 0)
+	for _, f := range flows {
+		if f.Host == blockedHost || strings.Contains(f.Host, blockedHost) {
+			t.Errorf("blocked host flow found in store: method=%s host=%s path=%s",
+				f.Method, f.Host, f.Path)
+		}
 	}
 }

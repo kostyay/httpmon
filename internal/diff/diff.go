@@ -2,7 +2,8 @@ package diff
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/kostyay/httpmon/internal/store"
@@ -21,17 +22,13 @@ type Result struct {
 
 // HasChanges returns true if there are any additions or deletions.
 func (r *Result) HasChanges() bool {
-	for _, l := range r.Lines {
-		if l.Type == "add" || l.Type == "del" {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(r.Lines, func(l DiffLine) bool {
+		return l.Type == "add" || l.Type == "del"
+	})
 }
 
 // Render returns a string representation of the diff.
-// If color is true, uses ANSI color codes.
-func (r *Result) Render(color bool) string {
+func (r *Result) Render() string {
 	var b strings.Builder
 	for _, l := range r.Lines {
 		prefix := "  "
@@ -114,19 +111,14 @@ func (r *Result) diffField(name, v1, v2 string) {
 func (r *Result) diffHeaders(section string, h1, h2 map[string][]string) {
 	r.Lines = append(r.Lines, DiffLine{Type: "ctx", Content: fmt.Sprintf("--- %s ---", section)})
 
-	allKeys := map[string]bool{}
+	keySet := make(map[string]struct{}, len(h1)+len(h2))
 	for k := range h1 {
-		allKeys[k] = true
+		keySet[k] = struct{}{}
 	}
 	for k := range h2 {
-		allKeys[k] = true
+		keySet[k] = struct{}{}
 	}
-
-	keys := make([]string, 0, len(allKeys))
-	for k := range allKeys {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(keySet))
 
 	for _, k := range keys {
 		v1 := joinVals(h1, k)

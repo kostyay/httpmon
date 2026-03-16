@@ -1,6 +1,7 @@
 package certutil
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -68,7 +69,7 @@ func installLinux(certPath string) error {
 	}
 
 	tee := exec.Command("sudo", "tee", dest) // #nosec G204 -- dest is a constant
-	tee.Stdin = strings.NewReader(string(data))
+	tee.Stdin = bytes.NewReader(data)
 	tee.Stdout = nil // suppress tee stdout
 	if out, err := tee.CombinedOutput(); err != nil {
 		return fmt.Errorf("write %s: %s: %w", dest, out, err)

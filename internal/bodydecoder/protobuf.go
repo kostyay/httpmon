@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -204,13 +205,7 @@ func stripParams(ct string) string {
 // matchesContentType reports whether contentType (after stripping params)
 // matches any of the given MIME types.
 func matchesContentType(contentType string, types []string) bool {
-	ct := stripParams(contentType)
-	for _, t := range types {
-		if ct == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(types, stripParams(contentType))
 }
 
 // orderedFields preserves field insertion order for JSON output.

@@ -55,10 +55,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 	}
 
 	// Limit read size to ~100ms worth of data for smoother throttling.
-	chunk := int(r.bps / 10)
-	if chunk < 1 {
-		chunk = 1
-	}
+	chunk := max(int(r.bps/10), 1)
 	if len(p) > chunk {
 		p = p[:chunk]
 	}

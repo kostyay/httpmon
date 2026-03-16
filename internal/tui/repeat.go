@@ -19,12 +19,11 @@ func (a *App) buildRepeatRequest() *http.Request {
 
 	u := fmt.Sprintf("%s://%s%s", meta.Scheme, meta.Host, meta.Path)
 
-	var body *bytes.Reader
+	var reqBody []byte
 	if data != nil && len(data.RequestBody) > 0 {
-		body = bytes.NewReader(data.RequestBody)
-	} else {
-		body = bytes.NewReader(nil)
+		reqBody = data.RequestBody
 	}
+	body := bytes.NewReader(reqBody)
 
 	req, reqErr := http.NewRequest(meta.Method, u, body)
 	if reqErr != nil {

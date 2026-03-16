@@ -1,5 +1,10 @@
 # Changelog
 
+
+## fix/content-encoding-decompression
+
+Fixed HTTP response decompression handling by removing the `content-encoding` header when proxy body decoding is applied (#34). Added buf cache resolution for protobuf imports, enabling seamless use of `buf.lock` dependencies in proto include paths. Enhanced protobuf decoder with per-host registry configuration in `~/.httpmon/config.json`, allowing different `.proto` definitions across multiple services. Expanded scripting API with new capabilities: `ctx.readFile()` for file operations, request/response body write support, and `ctx.respondWith()` for synthetic responses and local file serving — consolidating Map Local functionality into the scripting system. Documentation updated with detailed scripting examples, breakpoint controls, and per-host proto configuration guidance.
+
 ## feat/bodydecoder-registry
 
 Protobuf and gRPC-Web bodies are now decoded into human-readable text in the

@@ -3,7 +3,8 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/kostyay/httpmon/internal/bodydecoder"
@@ -211,11 +212,7 @@ func renderHeaders(b *strings.Builder, title string, h map[string][]string, coll
 	b.WriteString(styleSection.Render(fmt.Sprintf("%s %s (%d)", sectionIcon(collapsed), title, len(h))))
 	b.WriteString("\n")
 	if !collapsed {
-		keys := make([]string, 0, len(h))
-		for k := range h {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(h))
 		for _, k := range keys {
 			for _, v := range h[k] {
 				fmt.Fprintf(b, "  %s: %s\n", k, v)

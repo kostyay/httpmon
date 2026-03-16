@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -40,11 +41,8 @@ func (a *App) updateCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "tab":
 		// Cycle method.
-		for i, m := range composeMethods {
-			if m == a.composeMethod {
-				a.composeMethod = composeMethods[(i+1)%len(composeMethods)]
-				break
-			}
+		if i := slices.Index(composeMethods, a.composeMethod); i >= 0 {
+			a.composeMethod = composeMethods[(i+1)%len(composeMethods)]
 		}
 		return a, nil
 	case "ctrl+j":
@@ -98,12 +96,7 @@ func (a *App) sendCompose() (tea.Model, tea.Cmd) {
 	}
 
 	body := []byte(a.composeBody.Value())
-	var bodyReader *bytes.Reader
-	if len(body) > 0 {
-		bodyReader = bytes.NewReader(body)
-	} else {
-		bodyReader = bytes.NewReader(nil)
-	}
+	bodyReader := bytes.NewReader(body)
 
 	req, err := http.NewRequest(a.composeMethod, rawURL, bodyReader)
 	if err != nil {
@@ -113,7 +106,7 @@ func (a *App) sendCompose() (tea.Model, tea.Cmd) {
 	// Parse headers.
 	hdrs := a.composeHeaders.Value()
 	if hdrs != "" {
-		for _, h := range strings.Split(hdrs, ",") {
+		for h := range strings.SplitSeq(hdrs, ",") {
 			h = strings.TrimSpace(h)
 			parts := strings.SplitN(h, ":", 2)
 			if len(parts) == 2 {
@@ -150,36 +143,31 @@ func (a *App) viewCompose() string {
 	b.WriteString(strings.Repeat("─", a.width))
 	b.WriteString("\n\n")
 
+	focusLabel := func(name string, idx int) string {
+		if a.composeFocus == idx {
+			return "▸ " + name
+		}
+		return name
+	}
+
 	// Method.
 	b.WriteString(styleSection.Render("Method"))
-	b.WriteString(fmt.Sprintf("  %s  (Tab to cycle)\n\n", a.composeMethod))
+	fmt.Fprintf(&b, "  %s  (Tab to cycle)\n\n", a.composeMethod)
 
 	// URL.
-	label := "URL"
-	if a.composeFocus == 0 {
-		label = "▸ URL"
-	}
-	b.WriteString(styleSection.Render(label))
+	b.WriteString(styleSection.Render(focusLabel("URL", 0)))
 	b.WriteString("\n  ")
 	b.WriteString(a.composeURL.View())
 	b.WriteString("\n\n")
 
 	// Headers.
-	label = "Headers"
-	if a.composeFocus == 1 {
-		label = "▸ Headers"
-	}
-	b.WriteString(styleSection.Render(label))
+	b.WriteString(styleSection.Render(focusLabel("Headers", 1)))
 	b.WriteString("\n  ")
 	b.WriteString(a.composeHeaders.View())
 	b.WriteString("\n\n")
 
 	// Body.
-	label = "Body"
-	if a.composeFocus == 2 {
-		label = "▸ Body"
-	}
-	b.WriteString(styleSection.Render(label))
+	b.WriteString(styleSection.Render(focusLabel("Body", 2)))
 	b.WriteString("\n  ")
 	b.WriteString(a.composeBody.View())
 	b.WriteString("\n\n")

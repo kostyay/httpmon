@@ -21,7 +21,7 @@ Think Proxyman or Charles, but in your terminal.
 
 - **MITM proxy** — Intercept HTTP and HTTPS traffic with auto-generated CA certificates
 - **Live flow list** — Watch requests stream in real-time with color-coded methods and status codes
-- **Tree view** — Group flows by host, expand/collapse, focus on a single host
+- **Tree view** — Group flows by host or process, expand/collapse, focus on a single group
 - **Detail inspector** — Headers, syntax-highlighted bodies, collapsible sections, image preview
 - **Action menu** — Press `Space` for a context-aware command popup — no memorization needed
 - **Quick filter** — `/` to filter by host, path, method, status code, or content type
@@ -30,8 +30,9 @@ Think Proxyman or Charles, but in your terminal.
 - **Diff view** — Mark two flows and compare request/response side-by-side
 - **Host filtering** — Block or allow hosts at the proxy layer with wildcard patterns
 - **Scripting** — JavaScript hooks to modify requests/responses on the fly
+- **Breakpoints** — Pause and edit requests/responses mid-flight via script hooks
 - **Bandwidth throttling** — Simulate 3G/4G/WiFi network conditions
-- **Map Local** — Serve local files instead of upstream responses
+- **Map Local** — Serve local files instead of upstream responses (via scripting)
 - **Protobuf / gRPC-Web** — Decode and display protobuf and gRPC-Web bodies as JSON when `.proto` files are provided
 - **Process identification** — See which OS process initiated each request (best with sudo)
 - **Persistent settings** — Configure defaults in `~/.httpmon/config.json` or via the TUI settings screen (`P`)
@@ -65,12 +66,13 @@ make build
 ```bash
 httpmon                          # Start proxy on :8080
 httpmon --port 9090              # Custom port
+httpmon --buffer-size 5000       # Max flows in memory (default 10000)
+httpmon --data-dir ~/my-httpmon  # Custom data directory (default ~/.httpmon)
 httpmon --block "*.ads.com"      # Block hosts matching pattern
 httpmon --allow "api.example.*"  # Only intercept matching hosts
 httpmon --throttle 3g            # Simulate 3G network (750 kbps)
 httpmon --throttle 4g            # Simulate 4G network (4 Mbps)
 httpmon --latency 100ms          # Add 100ms latency to responses
-httpmon --maplocal rules.json    # Serve local files for matching URLs
 httpmon --proto-path ./protos    # Load .proto files for protobuf decoding
 httpmon --proto-include ./inc    # Protoc -I style import paths
 httpmon --mcp                    # Start with MCP server enabled
@@ -151,8 +153,11 @@ function onResponse(ctx) {
 | `ctx.method` | string | HTTP method (read/write) |
 | `ctx.url` | string | Full URL (read/write) |
 | `ctx.headers` | object | Request headers (read/write) |
-| `ctx.body` | string | Request body (read) |
+| `ctx.body` | string | Request body (read/write) |
 | `ctx.blocked` | bool | Set to `true` to block the request |
+| `ctx.respondWith(opts)` | function | Short-circuit with a synthetic response (see below) |
+| `ctx.breakpoint()` | function | Pause execution for interactive editing in the TUI |
+| `ctx.readFile(path)` | function | Read a file relative to the script directory |
 
 **`onResponse(ctx)`** — runs before the response reaches the client.
 
@@ -160,17 +165,42 @@ function onResponse(ctx) {
 |-------|------|-------------|
 | `ctx.status` | int | Status code (read/write) |
 | `ctx.headers` | object | Response headers (read/write) |
-| `ctx.body` | string | Response body (read) |
+| `ctx.body` | string | Response body (read/write) |
+| `ctx.respondWith(opts)` | function | Replace the response entirely |
+| `ctx.breakpoint()` | function | Pause execution for interactive editing in the TUI |
+| `ctx.readFile(path)` | function | Read a file relative to the script directory |
+
+### `ctx.respondWith(opts)`
+
+Short-circuit a request with a synthetic response, or replace a response entirely. Accepts an options object:
+
+```javascript
+// Return a custom body
+ctx.respondWith({
+  status: 200,
+  body: '{"mocked": true}',
+  headers: { "Content-Type": "application/json" }
+});
+
+// Serve a local file (content type inferred from extension)
+ctx.respondWith({
+  file: "mock-response.json"
+});
+```
+
+When called in `onRequest`, it halts script execution and returns the response immediately without contacting the upstream server. This is the mechanism behind **Map Local** — serving local files instead of upstream responses.
 
 ### Managing scripts
 
 Press `S` in the TUI to open the scripts manager. From there:
 
 - **Space** — Toggle a script on/off
-- **n** — Create a new script from template
+- **n** — Create a new script from template (opens in `$EDITOR`)
+- **e** — Edit selected script in `$EDITOR`
+- **m** — Quick-add a Map Local rule (pattern + local file path)
 - **d** — Delete a script (with confirmation)
 
-Scripts are reloaded each time the manager opens.
+Scripts are reloaded each time the manager opens. Scripts are tagged with category badges (**Script**, **Map Local**, **Breakpoint**) based on which APIs they use.
 
 ## Throttle
 
@@ -197,43 +227,31 @@ Press `T` to open the throttle modal. Select a preset with `j`/`k` and press `En
 
 ## Map Local
 
-Serve local files instead of fetching from upstream. Matched requests return the local file's content with the appropriate content type.
+Serve local files instead of fetching from upstream. Map Local is implemented through the scripting system using `ctx.respondWith({file})`.
 
-### Rules JSON format
+### Quick add via TUI
 
-```json
-[
-  {
-    "pattern": "api.example.com/config",
-    "local_path": "/path/to/config.json",
-    "status_code": 200
-  },
-  {
-    "pattern": "*.example.com/styles/*",
-    "local_path": "/path/to/override.css"
-  }
-]
+Press `S` to open the scripts manager, then `m` to add a Map Local rule. Enter a URL pattern and a local file path — httpmon generates a script that serves the file for matching requests.
+
+### Manual script
+
+```javascript
+// ---
+// name: Mock API Config
+// match:
+//   - "*://api.example.com/config*"
+// enabled: true
+// ---
+
+function onRequest(ctx) {
+  ctx.respondWith({
+    file: "config.json",   // relative to script directory
+    status: 200             // optional, defaults to 200
+  });
+}
 ```
 
-`pattern` supports `*` wildcards. `status_code` defaults to 200 if omitted.
-
-### CLI
-
-```bash
-httpmon --maplocal rules.json
-```
-
-### TUI
-
-Press `M` to open the Map Local manager:
-
-- **n** — Add a new rule (pattern + local path, Tab to switch fields)
-- **d** — Delete a rule (with confirmation)
-- **Esc** — Close
-
-Changes auto-save back to the rules file.
-
-Flows served from local files show a `[L]` indicator in the flow list.
+Scripts tagged with `ctx.respondWith()` show a **Map Local** badge in the scripts manager.
 
 ## Protobuf / gRPC-Web
 
@@ -246,6 +264,57 @@ httpmon --proto-include ./vendor           # Import search dirs (like protoc -I)
 ```
 
 Proto paths persist in `~/.httpmon/config.json`. When a request/response has a matching content type (`application/grpc-web`, `application/grpc-web+proto`, `application/x-protobuf`), the body is automatically decoded and displayed as JSON in the detail view.
+
+### Per-host proto registries
+
+For services that use different `.proto` definitions, configure per-host registries in `~/.httpmon/config.json`:
+
+```json
+{
+  "proto_hosts": {
+    "api.example.com": {
+      "paths": ["./protos/example"],
+      "includes": ["./protos/common"]
+    },
+    "*.internal.dev": {
+      "paths": ["./protos/internal"]
+    }
+  }
+}
+```
+
+Host patterns support `*` wildcards. Per-host registries take precedence over the global `proto_paths` for matching hosts.
+
+## Breakpoints
+
+Breakpoints let you pause requests or responses mid-flight and edit them interactively in the TUI before they continue.
+
+### Adding breakpoints via scripts
+
+Use `ctx.breakpoint()` in a script hook to pause execution:
+
+```javascript
+// ---
+// name: Debug API Calls
+// match:
+//   - "*://api.example.com/*"
+// enabled: true
+// ---
+
+function onRequest(ctx) {
+  ctx.breakpoint(); // Pauses here — edit headers/body in the TUI
+}
+
+function onResponse(ctx) {
+  if (ctx.status >= 400) {
+    ctx.breakpoint(); // Pause on errors
+  }
+}
+```
+
+### TUI
+
+Press `B` to open the breakpoints queue. When a breakpoint is hit, you can edit headers and body before resuming the flow. Scripts using `ctx.breakpoint()` show a **Breakpoint** badge in the scripts manager.
 
 ## Process Identification
 
@@ -317,10 +386,12 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate up/down |
+| `g` / `G` | Jump to first/last |
+| `Ctrl+D` / `Ctrl+U` | Page down/up |
 | `Enter` | Open flow detail |
-| `t` | Toggle flat/tree view |
-| `f` | Focus host (tree mode) |
-| `l` / `h` | Expand/collapse host (tree mode) |
+| `t` | Cycle flat → host tree → process tree |
+| `f` | Focus group (tree mode) |
+| `l` / `h` | Expand/collapse group (tree mode) |
 | `/` | Focus filter bar |
 | `Space` | Open action menu |
 | `x` | Export HAR |
@@ -333,7 +404,8 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 | Key | Action |
 |-----|--------|
 | `1` / `2` | Request/Response tab |
-| `j` / `k` | Scroll content |
+| `j` / `k` | Scroll up/down |
+| `d` / `u` | Half-page down/up |
 | `n` / `N` | Next/previous flow |
 | `p` | Toggle pretty/raw |
 | `e` | Open body in external editor |
@@ -352,7 +424,7 @@ Press `?` anywhere for the full help overlay, or `Space` for a context-aware act
 |-----|--------|
 | `S` | Scripts manager |
 | `T` | Throttle settings |
-| `M` | Map Local rules |
+| `B` | Breakpoints queue |
 | `P` | Settings |
 | `?` | Help overlay |
 
@@ -370,9 +442,9 @@ internal/diff/        Flow diff engine
 internal/highlight/   Syntax highlighting for response/request bodies
 internal/certutil/    CA certificate generation and system trust installation
 internal/throttle/    Bandwidth throttling (wraps io.Reader with rate limiting)
-internal/maplocal/    Map remote URLs to local files (wildcard pattern matching)
-internal/scripting/   JavaScript scripting hooks (goja runtime, YAML frontmatter)
-internal/bodydecoder/ Wire format decoding (protobuf, gRPC-Web)
+internal/scripting/   JavaScript scripting hooks (goja runtime, YAML frontmatter, map local, breakpoints)
+internal/breakpoint/  Breakpoint controller for pausing and editing flows mid-flight
+internal/bodydecoder/ Wire format decoding (protobuf, gRPC-Web, per-host proto registries)
 internal/config/      Persistent settings (~/.httpmon/config.json)
 internal/procinfo/    Process identification for proxied requests
 internal/mcpserver/   MCP server for LLM-driven debugging

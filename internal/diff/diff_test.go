@@ -39,7 +39,7 @@ func TestDiffHeaders(t *testing.T) {
 		t.Fatal("should have changes")
 	}
 
-	rendered := result.Render(false)
+	rendered := result.Render()
 	if !strings.Contains(rendered, "X-Old") {
 		t.Error("should show removed header X-Old")
 	}
@@ -63,7 +63,7 @@ func TestDiffBody(t *testing.T) {
 	if !result.HasChanges() {
 		t.Fatal("should have body changes")
 	}
-	rendered := result.Render(false)
+	rendered := result.Render()
 	if !strings.Contains(rendered, "old") {
 		t.Error("should show removed body content")
 	}
@@ -80,7 +80,7 @@ func TestDiffMethodAndStatus(t *testing.T) {
 	if !result.HasChanges() {
 		t.Fatal("different method+status should have changes")
 	}
-	rendered := result.Render(false)
+	rendered := result.Render()
 	if !strings.Contains(rendered, "GET") || !strings.Contains(rendered, "POST") {
 		t.Error("should show method change")
 	}

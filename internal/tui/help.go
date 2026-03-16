@@ -72,23 +72,23 @@ func helpGroups() []helpGroup {
 func (a *App) viewHelp() string {
 	var b strings.Builder
 
-	title := "Keybindings"
-	b.WriteString(styleHeader.Render(title))
+	b.WriteString(styleHeader.Render("Keybindings"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("─", a.width))
 	b.WriteString("\n\n")
 
-	for _, g := range helpGroups() {
+	groups := helpGroups()
+	for _, g := range groups {
 		b.WriteString(styleSection.Render(g.title))
 		b.WriteString("\n")
 		for _, kb := range g.bindings {
-			b.WriteString(fmt.Sprintf("  %-16s %s\n", kb.key, kb.desc))
+			fmt.Fprintf(&b, "  %-16s %s\n", kb.key, kb.desc)
 		}
 		b.WriteString("\n")
 	}
 
 	used := 3 // title + sep + blank
-	for _, g := range helpGroups() {
+	for _, g := range groups {
 		used += 2 + len(g.bindings) // title + blank + bindings
 	}
 	for used < a.height-1 {

@@ -3,6 +3,7 @@ package highlight
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -22,11 +23,7 @@ func Highlight(body []byte, contentType string, darkBg bool, prettyJSON bool) st
 	}
 
 	if IsBinary(body, contentType) {
-		ct := contentType
-		if ct == "" {
-			ct = "unknown"
-		}
-		return fmt.Sprintf("[binary content: %s, %s]", ct, formatBinarySize(len(body)))
+		return fmt.Sprintf("[binary content: %s, %s]", cmp.Or(contentType, "unknown"), formatBinarySize(len(body)))
 	}
 
 	mediaType, _, _ := mime.ParseMediaType(contentType)
@@ -167,7 +164,7 @@ func IsBinary(body []byte, contentType string) bool {
 			}
 		}
 		// NUL byte check (strong binary indicator).
-		if bytes.ContainsRune(body, 0) {
+		if bytes.Contains(body, []byte{0}) {
 			return true
 		}
 		// Invalid UTF-8 check.
