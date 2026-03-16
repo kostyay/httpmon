@@ -1,7 +1,7 @@
 package breakpoint
 
 import (
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -103,13 +103,13 @@ func TestConcurrentPausesResumeIndependently(t *testing.T) {
 
 	for _, id := range []string{"c-1", "c-2", "c-3"} {
 		wg.Add(1)
-		go func(flowID string) {
+		go func() {
 			defer wg.Done()
-			resp := ctrl.Pause(newHit(flowID, PhaseRequest))
+			resp := ctrl.Pause(newHit(id, PhaseRequest))
 			mu.Lock()
-			results[flowID] = resp
+			results[id] = resp
 			mu.Unlock()
-		}(id)
+		}()
 	}
 
 	require.Eventually(t, func() bool {
@@ -130,8 +130,8 @@ func TestConcurrentPausesResumeIndependently(t *testing.T) {
 func TestPendingAccuracy(t *testing.T) {
 	ctrl := NewController()
 
-	go ctrl.Pause(newHit("p-1", PhaseRequest))  //nolint:errcheck
-	go ctrl.Pause(newHit("p-2", PhaseResponse)) //nolint:errcheck
+	go ctrl.Pause(newHit("p-1", PhaseRequest))
+	go ctrl.Pause(newHit("p-2", PhaseResponse))
 
 	require.Eventually(t, func() bool {
 		return len(ctrl.Pending()) == 2
@@ -139,7 +139,7 @@ func TestPendingAccuracy(t *testing.T) {
 
 	pending := ctrl.Pending()
 	ids := []string{pending[0].FlowID, pending[1].FlowID}
-	sort.Strings(ids)
+	slices.Sort(ids)
 	assert.Equal(t, []string{"p-1", "p-2"}, ids)
 
 	ctrl.Resume("p-1", BreakpointResume{Skipped: true})
@@ -159,10 +159,10 @@ func TestResumeAllUnblocksAll(t *testing.T) {
 
 	for i, id := range []string{"ra-1", "ra-2", "ra-3"} {
 		wg.Add(1)
-		go func(idx int, flowID string) {
+		go func() {
 			defer wg.Done()
-			results[idx] = ctrl.Pause(newHit(flowID, PhaseRequest))
-		}(i, id)
+			results[i] = ctrl.Pause(newHit(id, PhaseRequest))
+		}()
 	}
 
 	require.Eventually(t, func() bool {

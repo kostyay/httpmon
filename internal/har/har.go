@@ -3,7 +3,8 @@ package har
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/kostyay/httpmon/internal/store"
 )
@@ -163,13 +164,9 @@ func convertHeaders(h map[string][]string) []HARHeader {
 		return []HARHeader{}
 	}
 
-	keys := make([]string, 0, len(h))
-	for k := range h {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(h))
 
-	var out []HARHeader
+	out := make([]HARHeader, 0, len(h))
 	for _, k := range keys {
 		for _, v := range h[k] {
 			out = append(out, HARHeader{Name: k, Value: v})

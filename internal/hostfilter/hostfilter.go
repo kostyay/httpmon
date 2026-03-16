@@ -1,6 +1,9 @@
 package hostfilter
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // HostFilter controls which hosts are intercepted (MITM) vs tunneled.
 type HostFilter struct {
@@ -23,26 +26,17 @@ func (hf *HostFilter) ShouldIntercept(host string) bool {
 	}
 	host = strings.ToLower(host)
 
+	matches := func(patterns []string) bool {
+		return slices.ContainsFunc(patterns, func(p string) bool { return matchHost(p, host) })
+	}
+
 	// Allow list takes priority: only intercept if in allow list.
 	if len(hf.allow) > 0 {
-		for _, pattern := range hf.allow {
-			if matchHost(pattern, host) {
-				return true
-			}
-		}
-		return false
+		return matches(hf.allow)
 	}
-
 	// Block list: intercept everything except blocked.
-	if len(hf.block) > 0 {
-		for _, pattern := range hf.block {
-			if matchHost(pattern, host) {
-				return false
-			}
-		}
-	}
-
-	return true
+	// ContainsFunc on nil/empty returns false, so this also handles no-filter case.
+	return !matches(hf.block)
 }
 
 // RuleCount returns the total number of active rules.

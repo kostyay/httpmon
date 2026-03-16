@@ -35,8 +35,8 @@ func TestRenderImage(t *testing.T) {
 	// Create a small 4x4 red PNG.
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	red := color.RGBA{R: 255, A: 255}
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			img.Set(x, y, red)
 		}
 	}

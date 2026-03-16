@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/kostyay/httpmon/internal/store"
@@ -54,8 +54,8 @@ func buildGroups(
 		groups = append(groups, *byKey[k])
 	}
 
-	sort.Slice(groups, func(i, j int) bool {
-		return groups[i].Newest.After(groups[j].Newest)
+	slices.SortFunc(groups, func(a, b flowGroup) int {
+		return b.Newest.Compare(a.Newest) // descending: newest first
 	})
 
 	return groups
@@ -77,14 +77,14 @@ func flattenTree(groups []flowGroup, expanded map[string]bool) []treeRow {
 
 // flattenFocus returns rows for a single focused group (no header row).
 func flattenFocus(groups []flowGroup, key string) []treeRow {
-	for _, g := range groups {
-		if g.Key == key {
-			rows := make([]treeRow, len(g.Flows))
-			for i, f := range g.Flows {
-				rows[i] = treeRow{IsHeader: false, GroupKey: g.Key, Flow: f}
-			}
-			return rows
-		}
+	idx := slices.IndexFunc(groups, func(g flowGroup) bool { return g.Key == key })
+	if idx < 0 {
+		return nil
 	}
-	return nil
+	g := groups[idx]
+	rows := make([]treeRow, len(g.Flows))
+	for i, f := range g.Flows {
+		rows[i] = treeRow{IsHeader: false, GroupKey: g.Key, Flow: f}
+	}
+	return rows
 }

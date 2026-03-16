@@ -2,7 +2,8 @@ package tui
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -45,8 +46,8 @@ func (a *App) refreshBreakpointPending() {
 		return
 	}
 	a.breakpointPending = a.breakpoints.Pending()
-	sort.Slice(a.breakpointPending, func(i, j int) bool {
-		return a.breakpointPending[i].FlowID < a.breakpointPending[j].FlowID
+	slices.SortFunc(a.breakpointPending, func(a, b breakpoint.BreakpointHit) int {
+		return strings.Compare(a.FlowID, b.FlowID)
 	})
 }
 
@@ -68,11 +69,7 @@ func formatHeadersForEditor(h map[string]string) string {
 	if len(h) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(h))
-	for k := range h {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(h))
 	var sb strings.Builder
 	for _, k := range keys {
 		sb.WriteString(k)
@@ -85,7 +82,7 @@ func formatHeadersForEditor(h map[string]string) string {
 
 func parseHeadersFromEditor(s string) map[string]string {
 	result := make(map[string]string)
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

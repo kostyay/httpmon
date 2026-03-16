@@ -3,8 +3,9 @@ package tui
 import (
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -18,11 +19,7 @@ func formatCurl(method, url string, headers http.Header, body []byte) string {
 	}
 
 	// Sort headers for deterministic output.
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(headers))
 
 	for _, k := range keys {
 		for _, v := range headers[k] {

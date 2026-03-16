@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -28,11 +29,7 @@ func ensureScriptID(path string, meta *ScriptMeta, source string) (string, error
 		if strings.TrimSpace(line) == headerDelimiter {
 			// Insert id line after opening delimiter.
 			idLine := fmt.Sprintf("// id: %s", id)
-			newLines := make([]string, 0, len(lines)+1)
-			newLines = append(newLines, lines[:i+1]...)
-			newLines = append(newLines, idLine)
-			newLines = append(newLines, lines[i+1:]...)
-			if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(strings.Join(slices.Insert(lines, i+1, idLine), "\n")), 0o600); err != nil {
 				return "", fmt.Errorf("backfill id in %s: %w", path, err)
 			}
 			meta.ID = id
@@ -143,13 +140,7 @@ func ToggleEnabled(path string) error {
 			if strings.TrimSpace(line) == headerDelimiter {
 				delimCount++
 				if delimCount == 2 {
-					insert := fmt.Sprintf("// enabled: %v", newEnabled)
-					// Insert before closing delimiter.
-					newLines := make([]string, 0, len(lines)+1)
-					newLines = append(newLines, lines[:i]...)
-					newLines = append(newLines, insert)
-					newLines = append(newLines, lines[i:]...)
-					lines = newLines
+					lines = slices.Insert(lines, i, fmt.Sprintf("// enabled: %v", newEnabled))
 					break
 				}
 			}
