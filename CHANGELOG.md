@@ -1,6 +1,7 @@
 # Changelog
 
 
+
 ## refactor/fmt-fprintf-migration
 
 Refactored TUI string formatting to use `fmt.Fprintf` directly instead of `fmt.Sprintf` followed by `WriteString`, improving memory efficiency and reducing allocations across the TUI layer (#35). This change streamlines output operations in modules like app rendering, breakpoint display, compose view, and tree navigation. Additionally, simplified scripting and Map Local functionality by removing advanced APIs (`ctx.respondWith()`, `ctx.breakpoint()`, `ctx.readFile()`) and per-host proto registry support, consolidating the feature set to core request/response interception capabilities. Documentation and CLI flags were updated to reflect these removals, with Map Local now operating as a standalone JSON-based rules engine rather than through the scripting system.
