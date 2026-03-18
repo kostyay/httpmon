@@ -1,5 +1,10 @@
 # Changelog
 
+
+## feat/linux-browse-support
+
+Added Linux support for the `--browse` flag (#37), extending URL opening and system proxy integration beyond macOS. The `internal/browse` package now uses platform-specific build tags (`//go:build darwin` and `//go:build linux`) with `xdg-open` for Linux browser launching and a documented no-op for Linux system proxy configuration due to desktop environment variability. macOS-specific proxy setup via `networksetup` remains unchanged, maintaining the existing behavior for auto-configuring httpmon as the system proxy and restoring original settings on exit.
+
 ## [0.1.13](https://github.com/kostyay/httpmon/pull/36) - 2026-03-18
 
 New `--browse <url>` flag opens the given URL in the default browser with
