@@ -152,15 +152,16 @@ type App struct {
 
 // AppConfig holds all dependencies for the TUI application.
 type AppConfig struct {
-	Store       FlowReader
-	Proxy       ProxyInfo
-	CATrusted   bool
-	Scripts     ScriptManager
-	Throttle    ThrottleController
-	Breakpoints breakpoint.Controller
-	MCP         MCPServer
-	DataDir     string
-	BodyDecoder BodyDecoderRegistry
+	Store         FlowReader
+	Proxy         ProxyInfo
+	CATrusted     bool
+	Scripts       ScriptManager
+	Throttle      ThrottleController
+	Breakpoints   breakpoint.Controller
+	MCP           MCPServer
+	DataDir       string
+	BodyDecoder   BodyDecoderRegistry
+	InitialFilter string // pre-populate filter input (e.g. host from -browse)
 }
 
 // NewApp creates a TUI application from the given config.
@@ -173,7 +174,11 @@ func NewApp(cfg AppConfig) *App {
 	si.Placeholder = "search..."
 	si.CharLimit = 256
 
-	return &App{
+	if cfg.InitialFilter != "" {
+		ti.SetValue(cfg.InitialFilter)
+	}
+
+	app := &App{
 		store:           cfg.Store,
 		proxy:           cfg.Proxy,
 		caTrusted:       cfg.CATrusted,
@@ -189,6 +194,12 @@ func NewApp(cfg AppConfig) *App {
 		detailCollapsed: make(map[string]bool),
 		breakpoints:     cfg.Breakpoints,
 	}
+
+	if cfg.InitialFilter != "" {
+		app.applyFilter()
+	}
+
+	return app
 }
 
 func tickCmd() tea.Cmd {

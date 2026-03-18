@@ -5,15 +5,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kostyay/httpmon/internal/bodydecoder"
 	"github.com/kostyay/httpmon/internal/breakpoint"
+	"github.com/kostyay/httpmon/internal/browse"
 	"github.com/kostyay/httpmon/internal/certutil"
 	"github.com/kostyay/httpmon/internal/config"
 	"github.com/kostyay/httpmon/internal/hostfilter"
@@ -50,6 +53,7 @@ func main() {
 	flag.Bool("mcp", false, "start MCP server on default addr (127.0.0.1:9551)")
 	flag.String("mcp-addr", "", "MCP server listen address (implies --mcp)")
 	mcpTokenFlag := flag.Bool("mcp-token", false, "print MCP bearer token and exit")
+	browseURL := flag.String("browse", "", "open URL in default browser with proxy configured (sets system proxy)")
 	var protoPaths stringSlice
 	flag.Var(&protoPaths, "proto-path", "path to .proto file or directory (repeatable)")
 	var protoIncludes stringSlice
@@ -61,9 +65,9 @@ func main() {
 		return
 	}
 
-	cfg, cfgErr := config.Load(*dataDir)
-	if cfgErr != nil {
-		fatal("config: %v", cfgErr)
+	cfg, err := config.Load(*dataDir)
+	if err != nil {
+		fatal("config: %v", err)
 	}
 	config.ApplyFlags(cfg, flag.Visit)
 
@@ -182,6 +186,38 @@ func main() {
 	go func() { proxyErr <- p.Serve(ctx) }()
 
 	caTrusted := certutil.IsInstalled(p.CACertPath())
+
+	// Browse mode: auto-install CA if needed, set system proxy, open URL.
+	if *browseURL != "" {
+		if !caTrusted {
+			fmt.Fprintf(os.Stderr, "Installing CA certificate for HTTPS interception...\n")
+			if err := certutil.Install(p.CACertPath()); err != nil {
+				fatal("install CA for browse: %v", err)
+			}
+			caTrusted = true
+		}
+		sess, err := browse.Start(cfg.ProxyPort, *browseURL)
+		if err != nil {
+			fatal("browse: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "System proxy set → opening %s\n", *browseURL)
+
+		// Ensure system proxy is ALWAYS restored, even on crash/signal/fatal.
+		defer func() {
+			if err := sess.Stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "browse cleanup: %v\n", err)
+			}
+		}()
+		// Catch signals that would bypass defer (SIGTERM, second SIGINT).
+		browseSig := make(chan os.Signal, 1)
+		signal.Notify(browseSig, syscall.SIGTERM, syscall.SIGHUP)
+		go func() {
+			<-browseSig
+			_ = sess.Stop()
+			os.Exit(1)
+		}()
+	}
+
 	mgr := scripting.NewManager(engine, scriptsDir)
 
 	var mcpSrv *mcpserver.Server
@@ -213,14 +249,17 @@ func main() {
 		DataDir:     *dataDir,
 		BodyDecoder: decoderReg,
 	}
+	if *browseURL != "" {
+		if u, err := url.Parse(*browseURL); err == nil && u.Host != "" {
+			tuiCfg.InitialFilter = u.Hostname()
+		}
+	}
 	if mcpSrv != nil {
 		tuiCfg.MCP = mcpSrv
 	}
 	app := tui.NewApp(tuiCfg)
 	prog := tea.NewProgram(app)
-	if _, err := prog.Run(); err != nil {
-		fatal("TUI error: %v", err)
-	}
+	_, tuiErr := prog.Run()
 	cancel()
 	if mcpSrv != nil {
 		mcpSrv.Stop()
@@ -228,6 +267,9 @@ func main() {
 	p.Stop()
 	if err := <-proxyErr; err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "proxy: %v\n", err)
+	}
+	if tuiErr != nil {
+		fatal("TUI error: %v", tuiErr)
 	}
 }
 
