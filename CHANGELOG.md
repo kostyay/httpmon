@@ -1,25 +1,31 @@
 # Changelog
 
-## feat/browse-url-proxy-launch
+
+## feat/linux-browse-support
+
+Added Linux support for the `--browse` flag (#37), extending URL opening and system proxy integration beyond macOS. The `internal/browse` package now uses platform-specific build tags (`//go:build darwin` and `//go:build linux`) with `xdg-open` for Linux browser launching and a documented no-op for Linux system proxy configuration due to desktop environment variability. macOS-specific proxy setup via `networksetup` remains unchanged, maintaining the existing behavior for auto-configuring httpmon as the system proxy and restoring original settings on exit.
+
+## [0.1.13](https://github.com/kostyay/httpmon/pull/36) - 2026-03-18
 
 New `--browse <url>` flag opens the given URL in the default browser with
-httpmon's proxy automatically configured as the macOS system proxy (#36). The
-system HTTP/HTTPS proxy is set via `networksetup` on the active network
-interface, and the original settings are snapshot and restored on exit via
-`defer` and dedicated SIGTERM/SIGHUP signal handlers — preventing the
-broken-internet scenario if httpmon crashes. The CA certificate is auto-installed
-if not already trusted. The TUI filter input is pre-populated with the hostname
-from the URL so only relevant traffic is visible.
+httpmon's proxy automatically configured as the macOS system proxy (#36), with
+the TUI filter pre-populated to show only relevant traffic. Protobuf decoding
+gains per-host registry configuration in `~/.httpmon/config.json` and automatic
+buf.lock dependency resolution for proto imports (#33, #34). The TUI rendering
+layer migrates from `fmt.Sprintf` + `WriteString` to direct `fmt.Fprintf`,
+reducing allocations (#35). Scripting is consolidated to core request/response
+interception — advanced APIs (`ctx.respondWith()`, `ctx.breakpoint()`,
+`ctx.readFile()`) and per-host proto registry in scripts are removed in favor of
+the JSON-based configuration approach. Content-encoding headers are now correctly
+stripped when the proxy applies body decompression (#34).
 
-## refactor/fmt-fprintf-migration
+## [0.1.12](https://github.com/kostyay/httpmon/pull/31) - 2026-02-27
 
-Refactored TUI string formatting to use `fmt.Fprintf` directly instead of `fmt.Sprintf` followed by `WriteString`, improving memory efficiency and reducing allocations across the TUI layer (#35). This change streamlines output operations in modules like app rendering, breakpoint display, compose view, and tree navigation. Additionally, simplified scripting and Map Local functionality by removing advanced APIs (`ctx.respondWith()`, `ctx.breakpoint()`, `ctx.readFile()`) and per-host proto registry support, consolidating the feature set to core request/response interception capabilities. Documentation and CLI flags were updated to reflect these removals, with Map Local now operating as a standalone JSON-based rules engine rather than through the scripting system.
+Body decoder internals refactored with a new `Encoder` interface for
+gRPC-Web/protobuf round-trip encoding and a simplified `Decode()` path via
+extracted `matchesContentType` helper (#31, #32).
 
-## fix/content-encoding-decompression
-
-Fixed HTTP response decompression handling by removing the `content-encoding` header when proxy body decoding is applied (#34). Added buf cache resolution for protobuf imports, enabling seamless use of `buf.lock` dependencies in proto include paths. Enhanced protobuf decoder with per-host registry configuration in `~/.httpmon/config.json`, allowing different `.proto` definitions across multiple services. Expanded scripting API with new capabilities: `ctx.readFile()` for file operations, request/response body write support, and `ctx.respondWith()` for synthetic responses and local file serving — consolidating Map Local functionality into the scripting system. Documentation updated with detailed scripting examples, breakpoint controls, and per-host proto configuration guidance.
-
-## feat/bodydecoder-registry
+## [0.1.11](https://github.com/kostyay/httpmon/pull/26) - 2026-02-24
 
 Protobuf and gRPC-Web bodies are now decoded into human-readable text in the
 detail view (#26). A new `--proto-path` flag loads `.proto` files for named
@@ -31,7 +37,7 @@ flow through the decoder pipeline. A gRPC-Web frame parser fix resolves a gosec
 G115 integer overflow, and a new E2E test exercises a full Connect RPC
 round-trip with proto decoding.
 
-## [feat/config-package-go126](https://github.com/kostyay/httpmon/pull/22) - 2026-02-16
+## [0.1.10](https://github.com/kostyay/httpmon/pull/22) - 2026-02-16
 
 Persistent configuration via `~/.httpmon/config.json` replaces pure CLI-flag
 defaults (#22). A new `internal/config` package handles Load/Save with automatic
@@ -45,7 +51,7 @@ persistence, view rendering, and menu integration. Go upgraded from 1.25.3 to
 1.26.0 alongside golangci-lint v2.9.0, resolving the race detector toolchain
 mismatch.
 
-## [feat/mcp-server](https://github.com/kostyay/httpmon/pull/20) - 2026-02-16
+## [0.1.9](https://github.com/kostyay/httpmon/pull/20) - 2026-02-16
 
 An MCP (Model Context Protocol) server lets LLM agents debug HTTP traffic
 programmatically alongside the TUI. Fourteen tools span read-only inspection
@@ -55,7 +61,7 @@ programmatically alongside the TUI. Fourteen tools span read-only inspection
 crypto-random 32-byte hex token protects the localhost-only endpoint. Scripts
 use opaque IDs instead of file paths, and all gosec findings are resolved.
 
-## [feat/process-identification](https://github.com/kostyay/httpmon/pull/19) - 2026-02-16
+## [0.1.8](https://github.com/kostyay/httpmon/pull/19) - 2026-02-16
 
 Each proxied request now shows which OS process initiated it (#19). A new
 `internal/procinfo` package resolves PID and process name asynchronously via
@@ -72,7 +78,7 @@ auto-generates a cask with platform-specific binaries and SHA256 checksums,
 pushed to the `kostyay/homebrew-tap` repo. Project branding added with logo,
 favicon, and README header image.
 
-## [feat/script-actions](https://github.com/kostyay/httpmon/pull/10) - 2026-02-14
+## [0.1.6](https://github.com/kostyay/httpmon/pull/10) - 2026-02-15
 
 Scripts gain three new primitives: `ctx.respondWith()` for synthetic responses,
 `ctx.readFile()` for local file access, and `ctx.breakpoint()` for interactive
@@ -83,27 +89,6 @@ editor featuring dual headers/body panes with syntax highlighting. Scripts are
 auto-categorized as `[Breakpoint]`, `[Map Local]`, or `[Script]` via static
 source analysis, and a quick-add helper (`m` key) generates map-local
 boilerplate from a URL pattern and file path.
-
-## [fix/gosec-security-issues](https://github.com/kostyay/httpmon/pull/9) - 2026-02-14
-
-Resolve all gosec security findings (#9). File permissions tightened from 0644
-to 0600, integer overflow guards added with `math.MaxInt32` clamping, unchecked
-`Close()` and `Remove()` calls addressed, and `#nosec` annotations added with
-justification comments for intentional patterns (MITM TLS, user-selected editor
-commands, known-dir file reads).
-
-## [feat/throttle-maplocal](https://github.com/kostyay/httpmon/pull/8) - 2026-02-14
-
-Bandwidth throttling and map-local file serving gain full TUI modals with
-keyboard-driven preset selection (3G/4G/WiFi) and rule management (#8). The
-proxy interceptor now correctly completes MapLocal flows during the Request
-phase, fixing a bug where locally-served responses stayed in-progress
-indefinitely.
-
-23 end-to-end tests exercise the full stack (real HTTP server → MITM proxy →
-store → TUI) across five categories: capture, filtering, views, actions, and
-proxy features. All tests run in parallel with per-test isolation. README
-updated with scripting, throttling, and map-local documentation.
 
 ## [0.1.5](https://github.com/kostyay/httpmon/pull/7) - 2026-02-14
 
@@ -119,14 +104,26 @@ view — list items like Export HAR, Compose Request, Mark for Diff; detail item
 like Copy cURL, Repeat Request, Open in Editor — eliminating the need to
 memorize 30+ keybindings.
 
-Flow list gains tree view with host grouping, expand/collapse, and focus mode.
-Detail view adds image preview, syntax-highlighted bodies, collapsible sections,
-in-view search with match navigation, and external editor support. New CLI flags
-`--block` and `--allow` enable wildcard-based host filtering at the proxy layer.
+Bandwidth throttling and map-local file serving gain full TUI modals with
+keyboard-driven preset selection (3G/4G/WiFi) and rule management (#8). The
+proxy interceptor now correctly completes MapLocal flows during the Request
+phase, fixing a bug where locally-served responses stayed in-progress
+indefinitely. Flow list gains tree view with host grouping, expand/collapse, and
+focus mode. Detail view adds image preview, syntax-highlighted bodies,
+collapsible sections, in-view search with match navigation, and external editor
+support. New CLI flags `--block` and `--allow` enable wildcard-based host
+filtering at the proxy layer.
+
+All gosec security findings resolved (#9): file permissions tightened from 0644
+to 0600, integer overflow guards added with `math.MaxInt32` clamping, unchecked
+`Close()` and `Remove()` calls addressed, and `#nosec` annotations added with
+justification comments for intentional patterns. 23 end-to-end tests exercise
+the full stack (real HTTP server → MITM proxy → store → TUI) across five
+categories: capture, filtering, views, actions, and proxy features.
 
 Supporting packages round out the feature set: HAR export, request diff, request
-repeat, cURL copy (OSC 52 clipboard), request composer, throttling, map-local
-file serving, and advanced filter expressions.
+repeat, cURL copy (OSC 52 clipboard), request composer, and advanced filter
+expressions.
 
 ## [0.1.1](https://github.com/kostyay/httpmon/pull/3) - 2026-02-09
 
