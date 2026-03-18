@@ -1,6 +1,15 @@
 # Changelog
 
+## feat/browse-url-proxy-launch
 
+New `--browse <url>` flag opens the given URL in the default browser with
+httpmon's proxy automatically configured as the macOS system proxy (#36). The
+system HTTP/HTTPS proxy is set via `networksetup` on the active network
+interface, and the original settings are snapshot and restored on exit via
+`defer` and dedicated SIGTERM/SIGHUP signal handlers — preventing the
+broken-internet scenario if httpmon crashes. The CA certificate is auto-installed
+if not already trusted. The TUI filter input is pre-populated with the hostname
+from the URL so only relevant traffic is visible.
 
 ## refactor/fmt-fprintf-migration
 
