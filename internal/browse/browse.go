@@ -2,10 +2,7 @@
 // via system proxy settings, and restores them on cleanup.
 package browse
 
-import (
-	"fmt"
-	"os/exec"
-)
+import "fmt"
 
 // Session holds state needed to restore proxy settings on cleanup.
 type Session struct {
@@ -37,10 +34,4 @@ func (s *Session) Stop() error {
 	return s.cleanup()
 }
 
-func openURL(url string) error {
-	cmd := exec.Command("open", url) // #nosec G204 -- url is from CLI flag
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %w", out, err)
-	}
-	return nil
-}
+
