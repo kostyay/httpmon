@@ -78,6 +78,7 @@ func (a *App) viewHelp() string {
 	b.WriteString("\n\n")
 
 	groups := helpGroups()
+	used := 3 // title + sep + blank
 	for _, g := range groups {
 		b.WriteString(styleSection.Render(g.title))
 		b.WriteString("\n")
@@ -85,19 +86,15 @@ func (a *App) viewHelp() string {
 			fmt.Fprintf(&b, "  %-16s %s\n", kb.key, kb.desc)
 		}
 		b.WriteString("\n")
+		used += 2 + len(g.bindings)
 	}
 
-	used := 3 // title + sep + blank
-	for _, g := range groups {
-		used += 2 + len(g.bindings) // title + blank + bindings
-	}
 	for used < a.height-1 {
 		b.WriteString("\n")
 		used++
 	}
 
-	bar := "? or Esc to dismiss"
-	b.WriteString(styleStatusBar.Width(a.width).Render(bar))
+	b.WriteString(styleStatusBar.Width(a.width).Render("? or Esc to dismiss"))
 
 	return b.String()
 }

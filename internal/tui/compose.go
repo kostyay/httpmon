@@ -40,7 +40,6 @@ func (a *App) updateCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.showCompose = false
 		return a, nil
 	case "tab":
-		// Cycle method.
 		if i := slices.Index(composeMethods, a.composeMethod); i >= 0 {
 			a.composeMethod = composeMethods[(i+1)%len(composeMethods)]
 		}
@@ -95,10 +94,7 @@ func (a *App) sendCompose() (tea.Model, tea.Cmd) {
 		rawURL = "https://" + rawURL
 	}
 
-	body := []byte(a.composeBody.Value())
-	bodyReader := bytes.NewReader(body)
-
-	req, err := http.NewRequest(a.composeMethod, rawURL, bodyReader)
+	req, err := http.NewRequest(a.composeMethod, rawURL, bytes.NewReader([]byte(a.composeBody.Value())))
 	if err != nil {
 		return a, tea.Printf("Invalid request: %v", err)
 	}

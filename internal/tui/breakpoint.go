@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -47,7 +48,7 @@ func (a *App) refreshBreakpointPending() {
 	}
 	a.breakpointPending = a.breakpoints.Pending()
 	slices.SortFunc(a.breakpointPending, func(a, b breakpoint.BreakpointHit) int {
-		return strings.Compare(a.FlowID, b.FlowID)
+		return cmp.Compare(a.FlowID, b.FlowID)
 	})
 }
 
@@ -69,9 +70,8 @@ func formatHeadersForEditor(h map[string]string) string {
 	if len(h) == 0 {
 		return ""
 	}
-	keys := slices.Sorted(maps.Keys(h))
 	var sb strings.Builder
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(h)) {
 		sb.WriteString(k)
 		sb.WriteString(": ")
 		sb.WriteString(h[k])
