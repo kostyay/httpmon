@@ -220,7 +220,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.ready = true
 		if a.showDetail {
 			a.detailVP.SetWidth(a.width)
-			a.detailVP.SetHeight(a.height - 3) // header + tab + status
+			a.detailVP.SetHeight(a.height - 5) // header + sep + tab + blank + status
 		}
 		return a, nil
 
@@ -780,7 +780,7 @@ func (a *App) editBody() (tea.Model, tea.Cmd) {
 }
 
 func (a *App) initDetailViewport() {
-	a.detailVP = viewport.New(viewport.WithWidth(a.width), viewport.WithHeight(a.height-3))
+	a.detailVP = viewport.New(viewport.WithWidth(a.width), viewport.WithHeight(a.height-5))
 	a.detailVP.SetYOffset(0)
 	a.detailReady = true
 	a.updateDetailContent()
@@ -816,7 +816,7 @@ func (a *App) updateDetailContent() {
 		} else {
 			body = data.ResponseBody
 		}
-		vpH := a.height - 3 // header + tabs + status
+		vpH := a.height - 5 // header + sep + tab + blank + status
 		out, renderErr := renderImage(body, a.width, vpH)
 		if renderErr == nil {
 			a.detailVP.SetContent(out)
