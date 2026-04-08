@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -409,6 +411,21 @@ func TestInitPortZero(t *testing.T) {
 		t.Fatalf("Init with port 0: %v", err)
 	}
 	p.Stop()
+}
+
+func TestInitCreatesDataDir(t *testing.T) {
+	s := store.New(10)
+	dataDir := filepath.Join(t.TempDir(), "nonexistent", "subdir")
+	p := New(s, dataDir)
+	err := p.Init("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Init with non-existent data dir: %v", err)
+	}
+	p.Stop()
+
+	if _, err := os.Stat(filepath.Join(dataDir, "proxy.log")); err != nil {
+		t.Errorf("proxy.log should exist after Init: %v", err)
+	}
 }
 
 func withScriptEngine(e *scripting.Engine) setupOpt {
