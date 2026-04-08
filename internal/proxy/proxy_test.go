@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -399,6 +400,18 @@ func TestMultipleHeaderValues(t *testing.T) {
 	if len(cookies) != 3 {
 		t.Errorf("Set-Cookie count = %d, want 3; values: %v", len(cookies), cookies)
 	}
+}
+
+func TestInitCreatesDataDir(t *testing.T) {
+	s := store.New(10)
+	// Use a path that doesn't exist yet.
+	dataDir := filepath.Join(t.TempDir(), "nested", "dir")
+	p := New(s, dataDir)
+	err := p.Init("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Init with non-existent dataDir: %v", err)
+	}
+	p.Stop()
 }
 
 func TestInitPortZero(t *testing.T) {

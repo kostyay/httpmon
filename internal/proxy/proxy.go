@@ -55,6 +55,11 @@ const maxBodySize = 5 * 1024 * 1024 // 5 MB
 // Init sets up the MITM proxy (CA generation + port validation).
 // This must be called before Serve. addr is e.g. ":8080".
 func (p *Proxy) Init(addr string) error {
+	// Ensure the data directory exists (may be first run).
+	if err := os.MkdirAll(p.caDir, 0o700); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+
 	// Redirect go-mitmproxy's logrus output to a file inside dataDir.
 	logPath := filepath.Join(p.caDir, "proxy.log")
 	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path derived from internal dataDir
