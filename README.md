@@ -113,6 +113,18 @@ sudo update-ca-certificates
 
 </details>
 
+## Image Preview (optional)
+
+httpmon can render image responses as ANSI art in the terminal. This requires
+the `chafa` build tag at build time and system `glib` library:
+
+```bash
+brew install glib
+go install -tags chafa github.com/kostyay/httpmon/cmd/httpmon@latest
+```
+
+The Homebrew release works without `glib` — image preview is simply unavailable.
+
 ## Scripting
 
 Scripts are JavaScript files stored in `~/.httpmon/scripts/`. Each script has a YAML frontmatter header and exports `onRequest` and/or `onResponse` hooks.
